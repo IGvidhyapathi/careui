@@ -207,6 +207,7 @@ function DrawerOverlay({
         "data-ending-style:duration-[calc(var(--drawer-swipe-strength)*400ms)]",
         "data-snap-points:[--drawer-overlay-min-opacity:0.5]",
         "data-starting-style:opacity-0 data-swiping:duration-0",
+        "motion-reduce:transition-opacity motion-reduce:duration-150 motion-reduce:data-ending-style:duration-150 motion-reduce:data-starting-style:duration-150",
         "supports-backdrop-filter:backdrop-blur-sm",
         "supports-[-webkit-touch-callout:none]:absolute",
         className
@@ -321,6 +322,9 @@ function DrawerContent({
             "data-ending-style:data-nested-drawer-swiping:duration-[calc(var(--drawer-swipe-strength)*400ms)]",
             "data-starting-style:transform-(--closed-transform) data-swiping:duration-0",
             "data-ending-style:data-swiping:duration-[calc(var(--drawer-swipe-strength)*400ms)]",
+            "motion-reduce:transition-opacity motion-reduce:duration-150",
+            "motion-reduce:data-starting-style:transform-none motion-reduce:data-starting-style:opacity-0 motion-reduce:data-starting-style:duration-150",
+            "motion-reduce:data-ending-style:transform-none motion-reduce:data-ending-style:opacity-0 motion-reduce:data-ending-style:duration-150",
             // Axis: y
             "data-[swipe-axis=y]:inset-x-0 data-[swipe-axis=y]:data-nested-drawer-open:h-(--stack-height)",
             // Axis: x
