@@ -1,4 +1,5 @@
 import js from '@eslint/js'
+import { plugin as shadcn } from '@shadcn/lint'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
@@ -18,6 +19,9 @@ export default defineConfig([
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
+    },
+    plugins: {
+      shadcn,
     },
   },
   // Component library files export both components and utilities/hooks by design.
