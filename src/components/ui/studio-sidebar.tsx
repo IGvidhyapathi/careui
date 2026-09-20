@@ -26,7 +26,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { PanelLeftIcon } from "lucide-react";
+import { ChevronsDownIcon, PanelLeftIcon } from "lucide-react";
 
 const SIDEBAR_COOKIE_NAME = "studio_sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -34,6 +34,7 @@ const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
+const SIDEBAR_SCROLL_END_THRESHOLD = 24;
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed";
@@ -292,7 +293,7 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
       onClick={toggleSidebar}
       title="Toggle Sidebar"
       className={cn(
-        "hover:after:bg-sidebar-border absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-[2px] sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2",
+        "hover:after:bg-sidebar-border absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-0.5 sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2",
         "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
         "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
         "hover:group-data-[collapsible=offcanvas]:bg-sidebar group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full",
@@ -368,17 +369,93 @@ function SidebarSeparator({
   );
 }
 
-function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
+function SidebarContent({
+  className,
+  children,
+  ref,
+  ...props
+}: React.ComponentProps<"div">) {
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
+
+  const setContentRef = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      contentRef.current = node;
+
+      if (typeof ref === "function") {
+        ref(node);
+      } else if (ref) {
+        ref.current = node;
+      }
+    },
+    [ref]
+  );
+
+  const updateScrollState = React.useCallback(() => {
+    const node = contentRef.current;
+
+    if (!node) {
+      return;
+    }
+
+    const maxScrollTop = node.scrollHeight - node.clientHeight;
+    const canScrollDown =
+      maxScrollTop - node.scrollTop > SIDEBAR_SCROLL_END_THRESHOLD;
+    node.toggleAttribute("data-scroll-up", node.scrollTop > 1);
+    node.toggleAttribute("data-scroll-down", canScrollDown);
+  }, []);
+
+  React.useLayoutEffect(() => {
+    const node = contentRef.current;
+
+    if (!node) {
+      return;
+    }
+
+    const resizeObserver = new ResizeObserver(updateScrollState);
+    const observeResizeTargets = () => {
+      resizeObserver.disconnect();
+      resizeObserver.observe(node);
+
+      for (const child of node.children) {
+        resizeObserver.observe(child);
+      }
+
+      updateScrollState();
+    };
+
+    observeResizeTargets();
+    node.addEventListener("scroll", updateScrollState, { passive: true });
+
+    const mutationObserver = new MutationObserver(observeResizeTargets);
+    mutationObserver.observe(node, { childList: true, subtree: true });
+
+    return () => {
+      node.removeEventListener("scroll", updateScrollState);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [updateScrollState]);
+
   return (
     <div
+      ref={setContentRef}
       data-slot="sidebar-content"
       data-sidebar="content"
       className={cn(
-        "no-scrollbar flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden",
+        "sidebar-content-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden",
         className
       )}
       {...props}
-    />
+    >
+      {children}
+      <span
+        aria-hidden="true"
+        data-slot="sidebar-scroll-cue"
+        className="text-sidebar-foreground/45 pointer-events-none sticky bottom-1 z-10 mx-auto -mt-4 mb-1 flex size-4 shrink-0 items-center justify-center group-data-[collapsible=icon]:hidden"
+      >
+        <ChevronsDownIcon className="size-4" strokeWidth={1.5} />
+      </span>
+    </div>
   );
 }
 

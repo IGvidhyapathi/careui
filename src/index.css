@@ -430,6 +430,63 @@
   }
 }
 
+@layer components {
+  .sidebar-content-scroll {
+    --sidebar-content-mask-start: rgb(0 0 0 / 1);
+    --sidebar-content-mask-end: rgb(0 0 0 / 1);
+    --sidebar-content-fade-size: --spacing(7);
+
+    scrollbar-color: color-mix(in oklch, var(--sidebar-foreground) 32%, transparent) transparent;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      var(--sidebar-content-mask-start) 0,
+      rgb(0 0 0 / 1) var(--sidebar-content-fade-size),
+      rgb(0 0 0 / 1) calc(100% - var(--sidebar-content-fade-size)),
+      var(--sidebar-content-mask-end) 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      var(--sidebar-content-mask-start) 0,
+      rgb(0 0 0 / 1) var(--sidebar-content-fade-size),
+      rgb(0 0 0 / 1) calc(100% - var(--sidebar-content-fade-size)),
+      var(--sidebar-content-mask-end) 100%
+    );
+  }
+
+  .sidebar-content-scroll[data-scroll-up] {
+    --sidebar-content-mask-start: rgb(0 0 0 / 0);
+  }
+
+  .sidebar-content-scroll[data-scroll-down] {
+    --sidebar-content-mask-end: rgb(0 0 0 / 0);
+  }
+
+  .sidebar-content-scroll::-webkit-scrollbar {
+    width: --spacing(2);
+  }
+
+  .sidebar-content-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .sidebar-content-scroll::-webkit-scrollbar-thumb {
+    background-clip: content-box;
+    background-color: color-mix(in oklch, var(--sidebar-foreground) 32%, transparent);
+    border: --spacing(0.5) solid transparent;
+    border-radius: 999px;
+  }
+}
+
+.sidebar-content-scroll [data-slot="sidebar-scroll-cue"] {
+  visibility: hidden;
+}
+
+.sidebar-content-scroll[data-scroll-down] [data-slot="sidebar-scroll-cue"] {
+  visibility: visible;
+}
+
 /* Squircle utilities */
 
 @utility rounded-squircle-sm {

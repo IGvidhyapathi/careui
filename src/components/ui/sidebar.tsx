@@ -27,7 +27,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { PanelLeftIcon } from "lucide-react";
+import { ChevronsDownIcon, PanelLeftIcon } from "lucide-react";
 
 type RenderProp =
   | React.ReactElement
@@ -59,6 +59,7 @@ const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
+const SIDEBAR_SCROLL_END_THRESHOLD = 24;
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed";
@@ -395,17 +396,93 @@ function SidebarSeparator({
   );
 }
 
-function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
+function SidebarContent({
+  className,
+  children,
+  ref,
+  ...props
+}: React.ComponentProps<"div">) {
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
+
+  const setContentRef = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      contentRef.current = node;
+
+      if (typeof ref === "function") {
+        ref(node);
+      } else if (ref) {
+        ref.current = node;
+      }
+    },
+    [ref]
+  );
+
+  const updateScrollState = React.useCallback(() => {
+    const node = contentRef.current;
+
+    if (!node) {
+      return;
+    }
+
+    const maxScrollTop = node.scrollHeight - node.clientHeight;
+    const canScrollDown =
+      maxScrollTop - node.scrollTop > SIDEBAR_SCROLL_END_THRESHOLD;
+    node.toggleAttribute("data-scroll-up", node.scrollTop > 1);
+    node.toggleAttribute("data-scroll-down", canScrollDown);
+  }, []);
+
+  React.useLayoutEffect(() => {
+    const node = contentRef.current;
+
+    if (!node) {
+      return;
+    }
+
+    const resizeObserver = new ResizeObserver(updateScrollState);
+    const observeResizeTargets = () => {
+      resizeObserver.disconnect();
+      resizeObserver.observe(node);
+
+      for (const child of node.children) {
+        resizeObserver.observe(child);
+      }
+
+      updateScrollState();
+    };
+
+    observeResizeTargets();
+    node.addEventListener("scroll", updateScrollState, { passive: true });
+
+    const mutationObserver = new MutationObserver(observeResizeTargets);
+    mutationObserver.observe(node, { childList: true, subtree: true });
+
+    return () => {
+      node.removeEventListener("scroll", updateScrollState);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [updateScrollState]);
+
   return (
     <div
+      ref={setContentRef}
       data-slot="sidebar-content"
       data-sidebar="content"
       className={cn(
-        "no-scrollbar flex min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto group-data-[collapsible=icon]:overflow-hidden",
+        "sidebar-content-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto group-data-[collapsible=icon]:overflow-hidden",
         className
       )}
       {...props}
-    />
+    >
+      {children}
+      <span
+        aria-hidden="true"
+        data-slot="sidebar-scroll-cue"
+        className="text-sidebar-foreground/45 pointer-events-none sticky bottom-1 z-10 mx-auto -mt-4 mb-1 flex size-4 shrink-0 items-center justify-center group-data-[collapsible=icon]:hidden"
+      >
+        <ChevronsDownIcon className="size-4" strokeWidth={1.5} />
+      </span>
+    </div>
   );
 }
 
