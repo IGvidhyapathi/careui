@@ -75,6 +75,8 @@ declare module "@tanstack/react-table" {
   interface ColumnMeta<TData extends RowData, TValue> {
     className?: string;
     skeleton?: React.ReactNode;
+    /** Extend this column's cell down alongside the row's expanded content. */
+    spanExpandedRow?: boolean;
   }
 }
 
@@ -109,6 +111,8 @@ interface DataTableProps<TData, TValue> {
   autoWidth?: boolean;
   /** Render expanded content below a row. Pair with a toggle column that calls row.getToggleExpandedHandler(). */
   renderExpandedRow?: (row: Row<TData>) => React.ReactNode;
+  /** Initial expanded state. Pass `true` to expand every row on first render. */
+  defaultExpanded?: ExpandedState;
   /** Hide the filter/column toolbar. Useful for nested sub-tables. */
   hideToolbar?: boolean;
   /** Allow columns to be reordered by dragging their headers. */
@@ -129,6 +133,7 @@ function DataTable<TData, TValue>({
   dense = false,
   autoWidth = false,
   renderExpandedRow,
+  defaultExpanded,
   hideToolbar = false,
   movableColumns = false,
   pinnable = false,
@@ -142,7 +147,9 @@ function DataTable<TData, TValue>({
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
-  const [expanded, setExpanded] = React.useState<ExpandedState>({});
+  const [expanded, setExpanded] = React.useState<ExpandedState>(
+    defaultExpanded ?? {}
+  );
   const [columnOrder, setColumnOrder] = React.useState<string[]>(() =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     columns.map((c) => (c as any).id ?? String((c as any).accessorKey))
@@ -232,6 +239,50 @@ function DataTable<TData, TValue>({
   const pinTableMinWidth = pinnable
     ? table.getAllLeafColumns().reduce((sum, col) => sum + col.getSize(), 0)
     : undefined;
+
+  const rows = table.getRowModel().rows;
+
+  const renderRow = (row: Row<TData>) => {
+    const cells = row.getVisibleCells();
+    const expanded = !!renderExpandedRow && row.getIsExpanded();
+    const spansRow = (cell: (typeof cells)[number]) =>
+      expanded && !!cell.column.columnDef.meta?.spanExpandedRow;
+
+    return (
+      <React.Fragment key={row.id}>
+        <TableRow data-state={row.getIsSelected() && "selected"}>
+          {cells.map((cell) => (
+            <TableCell
+              key={cell.id}
+              rowSpan={spansRow(cell) ? 2 : undefined}
+              style={pinCellStyle(cell.column)}
+              data-pinned={
+                pinnable && cell.column.getIsPinned()
+                  ? cell.column.getIsPinned()
+                  : undefined
+              }
+              className={cn(
+                cell.column.columnDef.meta?.className,
+                pinnable && cell.column.getIsPinned() && "bg-background"
+              )}
+            >
+              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+            </TableCell>
+          ))}
+        </TableRow>
+        {expanded && (
+          <TableRow className="hover:bg-transparent">
+            <TableCell
+              colSpan={cells.length - cells.filter(spansRow).length}
+              className="p-0"
+            >
+              {renderExpandedRow(row)}
+            </TableCell>
+          </TableRow>
+        )}
+      </React.Fragment>
+    );
+  };
 
   const tableContent = (
     <DataTableMoveContext.Provider value={moveCtxValue}>
@@ -333,47 +384,8 @@ function DataTable<TData, TValue>({
                 </TableRow>
               ))}
             </TableHeader>
-            <TableBody>
-              {table.getRowModel().rows?.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <React.Fragment key={row.id}>
-                    <TableRow data-state={row.getIsSelected() && "selected"}>
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell
-                          key={cell.id}
-                          style={pinCellStyle(cell.column)}
-                          data-pinned={
-                            pinnable && cell.column.getIsPinned()
-                              ? cell.column.getIsPinned()
-                              : undefined
-                          }
-                          className={cn(
-                            cell.column.columnDef.meta?.className,
-                            pinnable &&
-                              cell.column.getIsPinned() &&
-                              "bg-background"
-                          )}
-                        >
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext()
-                          )}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                    {row.getIsExpanded() && renderExpandedRow && (
-                      <TableRow className="hover:bg-transparent">
-                        <TableCell
-                          colSpan={row.getVisibleCells().length}
-                          className="p-0"
-                        >
-                          {renderExpandedRow(row)}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </React.Fragment>
-                ))
-              ) : (
+            {!rows.length ? (
+              <TableBody>
                 <TableRow>
                   <TableCell
                     colSpan={columns.length}
@@ -382,8 +394,21 @@ function DataTable<TData, TValue>({
                     No results.
                   </TableCell>
                 </TableRow>
-              )}
-            </TableBody>
+              </TableBody>
+            ) : renderExpandedRow ? (
+              // One <tbody> per row so a row and its expanded content can be styled as a group.
+              rows.map((row) => (
+                <TableBody
+                  key={row.id}
+                  data-state={row.getIsSelected() ? "selected" : undefined}
+                  className="not-last:[&_tr:last-child]:border-b"
+                >
+                  {renderRow(row)}
+                </TableBody>
+              ))
+            ) : (
+              <TableBody>{rows.map(renderRow)}</TableBody>
+            )}
             {table
               .getFooterGroups()
               .some((fg) =>

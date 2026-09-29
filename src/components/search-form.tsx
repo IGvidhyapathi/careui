@@ -31,6 +31,7 @@ import {
 } from "@/lib/component-categories";
 import { documentationPages } from "@/lib/documentation";
 import { ERROR_PAGES } from "@/components/error-pages/registry";
+import { TEMPLATES } from "@/components/templates/registry";
 
 const componentsByLevel = groupComponentIdsByLevel(getComponentIds());
 
@@ -64,6 +65,10 @@ const navSections = [
       title: componentNames[id] || id,
     })),
   })),
+  {
+    title: "Components / Templates",
+    items: TEMPLATES.map(({ id, title }) => ({ id, title })),
+  },
 ];
 
 export function SearchForm(props: React.ComponentProps<"form">) {

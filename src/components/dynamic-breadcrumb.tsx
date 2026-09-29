@@ -3,6 +3,7 @@ import { getComponentIds } from "@/lib/component-registry";
 import { componentNames } from "@/lib/component-names";
 import { documentationPages } from "@/lib/documentation";
 import { getErrorPageById } from "@/components/error-pages/registry";
+import { getTemplateById } from "@/components/templates/registry";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -34,6 +35,15 @@ function getBreadcrumbPath(activeComponent: string): BreadcrumbPath {
       section: "Components",
       sectionTarget: "components-overview",
       page: componentNames[activeComponent] || activeComponent,
+    };
+  }
+
+  const template = getTemplateById(activeComponent);
+  if (template) {
+    return {
+      section: "Components",
+      sectionTarget: "components-overview",
+      page: template.title,
     };
   }
 

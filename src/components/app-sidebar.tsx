@@ -11,6 +11,7 @@ import {
   groupComponentIdsByLevel,
 } from "@/lib/component-categories";
 import { documentationPages } from "@/lib/documentation";
+import { TEMPLATES } from "@/components/templates/registry";
 import {
   Sidebar,
   SidebarContent,
@@ -61,6 +62,10 @@ const data = {
           title: componentNames[id] || id,
         })),
     })),
+    {
+      title: "Components / Templates",
+      items: TEMPLATES.map(({ id, title }) => ({ id, title })),
+    },
     {
       title: "Error Pages",
       items: [{ id: "error-pages", title: "Examples" }],

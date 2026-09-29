@@ -28,8 +28,9 @@ function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props) {
 function ComboboxTrigger({
   className,
   children,
+  showChevron = true,
   ...props
-}: ComboboxPrimitive.Trigger.Props) {
+}: ComboboxPrimitive.Trigger.Props & { showChevron?: boolean }) {
   return (
     <ComboboxPrimitive.Trigger
       data-slot="combobox-trigger"
@@ -37,7 +38,9 @@ function ComboboxTrigger({
       {...props}
     >
       {children}
-      <ChevronDownIcon className="text-muted-foreground pointer-events-none size-4" />
+      {showChevron && (
+        <ChevronDownIcon className="text-muted-foreground pointer-events-none size-4" />
+      )}
     </ComboboxPrimitive.Trigger>
   );
 }
@@ -61,15 +64,19 @@ function ComboboxInput({
   disabled = false,
   showTrigger = true,
   showClear = false,
+  inputClassName,
   ...props
 }: ComboboxPrimitive.Input.Props & {
   showTrigger?: boolean;
   showClear?: boolean;
+  inputClassName?: string;
 }) {
   return (
     <InputGroup className={cn("w-auto", className)}>
       <ComboboxPrimitive.Input
-        render={<InputGroupInput disabled={disabled} />}
+        render={
+          <InputGroupInput disabled={disabled} className={inputClassName} />
+        }
         {...props}
       />
       <InputGroupAddon align="inline-end">

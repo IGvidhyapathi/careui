@@ -11672,7 +11672,14 @@ export function AggregateTable() {
       name: "renderExpandedRow",
       type: "(row: Row<TData>) => React.ReactNode",
       description:
-        "Renders expanded content below a row when it is toggled open. Pair with a column that calls row.getToggleExpandedHandler().",
+        'Renders expanded content below a row when it is toggled open. Pair with a column that calls row.getToggleExpandedHandler(). Each row and its expanded content render in their own <tbody> (with data-state="selected" when selected) so they can be styled as a group. Set `meta.spanExpandedRow` on a column to extend its cell down beside the expanded content.',
+    },
+    {
+      name: "defaultExpanded",
+      type: "ExpandedState",
+      description:
+        "Initial expanded state. Pass `true` to render every row expanded, e.g. for always-visible note rows.",
+      default: "{}",
     },
     {
       name: "hideToolbar",

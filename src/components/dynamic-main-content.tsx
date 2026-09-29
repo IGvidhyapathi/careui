@@ -30,6 +30,8 @@ import { FoundationsPage } from "@/components/foundations-page";
 import { AccessibilityPage } from "@/components/accessibility-page";
 import { ContributingPage } from "@/components/contributing-page";
 import { ErrorPagesPage } from "@/components/error-pages";
+import { TemplatePage } from "@/components/templates";
+import { getTemplateById } from "@/components/templates/registry";
 import {
   DocumentationDisplay,
   NotFoundDocumentation,
@@ -554,7 +556,8 @@ export function DynamicMainContent() {
         activeComponent === "components-overview" ||
         activeComponent === "blocks" ||
         activeComponent === "error-pages" ||
-        activeComponent.startsWith("error-page-")
+        activeComponent.startsWith("error-page-") ||
+        getTemplateById(activeComponent)
       ) {
         setComponentDoc(null);
         return;
@@ -625,6 +628,11 @@ export function DynamicMainContent() {
   if (activeComponent === "settings") {
     dismissHtmlScreen();
     return <SettingsPage />;
+  }
+
+  if (getTemplateById(activeComponent)) {
+    dismissHtmlScreen();
+    return <TemplatePage id={activeComponent} />;
   }
 
   // Handle error pages overview
