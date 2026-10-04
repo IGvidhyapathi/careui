@@ -690,13 +690,20 @@ function DataTableColumnHeader<TValue>({
 
 interface DataTableRowActionsProps {
   children?: React.ReactNode;
+  triggerClassName?: string;
 }
 
-function DataTableRowActions({ children }: DataTableRowActionsProps) {
+function DataTableRowActions({
+  children,
+  triggerClassName,
+}: DataTableRowActionsProps) {
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="size-10 p-0 shadow-sm">
+        <Button
+          variant="ghost"
+          className={cn("size-10 p-0 shadow-sm", triggerClassName)}
+        >
           <span className="sr-only">Open menu</span>
           <MoreHorizontal />
         </Button>

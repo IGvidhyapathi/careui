@@ -277,6 +277,29 @@ export function ComboboxDemo() {
     </Combobox>
   )
 }`,
+  props: [
+    {
+      name: "collisionBoundary",
+      type: '"clipping-ancestors" | Element | Element[] | Rect',
+      description:
+        "Sets the area used to position ComboboxContent. Use document.documentElement when the combobox is inside a clipped or scrolling container.",
+      default: '"clipping-ancestors"',
+    },
+    {
+      name: "collisionAvoidance",
+      type: "CollisionAvoidance",
+      description:
+        "Controls whether ComboboxContent flips or shifts when it reaches its collision boundary.",
+      default: '{ side: "flip", align: "flip", fallbackAxisSide: "none" }',
+    },
+    {
+      name: "ComboboxList.showScrollbar",
+      type: "boolean",
+      description:
+        "Shows the native scrollbar when the list content overflows. Defaults to hidden for existing Combobox lists.",
+      default: "false",
+    },
+  ],
   preview: {
     code: `<Combobox items={frameworks}>
   <ComboboxInput placeholder="Select a framework" />

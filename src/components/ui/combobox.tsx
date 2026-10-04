@@ -1,6 +1,6 @@
 /**
  * @name combobox
- * @description Autocomplete input and command palette with a list of suggestions.
+ * @description Autocomplete input and command palette with a list of suggestions and configurable popup boundaries and scrollbars.
  * @dependencies @base-ui/react
  * @type registry:ui
  */
@@ -106,11 +106,19 @@ function ComboboxContent({
   align = "start",
   alignOffset = 0,
   anchor,
+  collisionBoundary,
+  collisionAvoidance,
   ...props
 }: ComboboxPrimitive.Popup.Props &
   Pick<
     ComboboxPrimitive.Positioner.Props,
-    "side" | "align" | "sideOffset" | "alignOffset" | "anchor"
+    | "side"
+    | "sideOffset"
+    | "align"
+    | "alignOffset"
+    | "anchor"
+    | "collisionBoundary"
+    | "collisionAvoidance"
   >) {
   return (
     <ComboboxPrimitive.Portal>
@@ -120,6 +128,8 @@ function ComboboxContent({
         align={align}
         alignOffset={alignOffset}
         anchor={anchor}
+        collisionBoundary={collisionBoundary}
+        collisionAvoidance={collisionAvoidance}
         className="isolate z-50"
       >
         <ComboboxPrimitive.Popup
@@ -136,12 +146,17 @@ function ComboboxContent({
   );
 }
 
-function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props) {
+function ComboboxList({
+  className,
+  showScrollbar = false,
+  ...props
+}: ComboboxPrimitive.List.Props & { showScrollbar?: boolean }) {
   return (
     <ComboboxPrimitive.List
       data-slot="combobox-list"
       className={cn(
-        "no-scrollbar max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 overflow-y-auto overscroll-contain p-1 data-empty:p-0",
+        !showScrollbar && "no-scrollbar",
+        "max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 overflow-y-auto overscroll-contain p-1 data-empty:p-0",
         className
       )}
       {...props}
