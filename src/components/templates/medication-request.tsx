@@ -6,21 +6,30 @@ import {
   ArrowLeftRight,
   ArrowRight,
   CalendarDays,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  CircleDot,
   CircleMinus,
   ClipboardList,
-  FileText,
+  Folder,
   History,
   ListFilter,
+  Package,
   Pill,
+  PillBottle,
   Plus,
+  Search,
+  Salad,
+  ShieldPlus,
   Settings2,
   Star,
+  Syringe,
   SquarePen,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -63,14 +72,13 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { InputGroupAddon, InputGroupButton } from "@/components/ui/input-group";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import {
   Select,
   SelectContent,
@@ -91,6 +99,7 @@ import {
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Toggle } from "@/components/ui/toggle";
 import {
   Tooltip,
   TooltipContent,
@@ -166,6 +175,11 @@ const SCHEDULE_DESCRIPTIONS = new Map(
 );
 
 const PRN_SCHEDULE = "SOS";
+
+function getPrimaryShortcutModifier(): "Meta" | "Control" {
+  if (typeof navigator === "undefined") return "Control";
+  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform) ? "Meta" : "Control";
+}
 
 const PRN_REASONS = [
   "Chronic nontraumatic intracranial subdural haematoma",
@@ -274,12 +288,47 @@ const MEDICINE_CATALOG = [
 ];
 
 type MedicationSource = "Personal" | "Formulary" | "Org" | "Catalog";
+type MedicationProductType =
+  | "Medication"
+  | "Nutritional Product"
+  | "Consumable";
+type MedicationForm =
+  | "tablet"
+  | "capsule"
+  | "sachet"
+  | "powder"
+  | "medicalDevice"
+  | "protectiveEquipment";
+
+const MEDICATION_FORM_ICONS = {
+  tablet: CircleDot,
+  capsule: Pill,
+  sachet: Package,
+  powder: Salad,
+  medicalDevice: Syringe,
+  protectiveEquipment: ShieldPlus,
+} satisfies Record<MedicationForm, typeof CircleDot>;
+
+const MEDICATION_PRODUCT_TYPE_ICONS = {
+  Medication: PillBottle,
+  "Nutritional Product": Salad,
+  Consumable: Package,
+} satisfies Record<MedicationProductType, typeof CircleDot>;
+
+const MEDICATION_PRODUCT_TYPES: MedicationProductType[] = [
+  "Medication",
+  "Nutritional Product",
+  "Consumable",
+];
 
 interface MedicationCatalogItem {
   medicine: string;
   title: string;
   detail?: string;
   source: MedicationSource;
+  productType: MedicationProductType;
+  form: MedicationForm;
+  category: string;
   starred?: boolean;
   frequent?: boolean;
 }
@@ -290,6 +339,9 @@ const MEDICATION_PICKER_ITEMS: MedicationCatalogItem[] = [
     title: "Morphine sulfate 15 mg tablet",
     detail: "Morphine sulfate 15 mg tablet",
     source: "Personal",
+    productType: "Medication",
+    form: "tablet",
+    category: "Analgesics",
     starred: true,
   },
   {
@@ -297,24 +349,36 @@ const MEDICATION_PICKER_ITEMS: MedicationCatalogItem[] = [
     title: "Dolo 500",
     detail: "Paracetamol 500 mg",
     source: "Formulary",
+    productType: "Medication",
+    form: "tablet",
+    category: "Analgesics",
     starred: true,
   },
   {
     medicine: "ORS sachet",
     title: "ORS sachet",
     source: "Catalog",
+    productType: "Nutritional Product",
+    form: "sachet",
+    category: "Oral rehydration",
     starred: true,
   },
   {
     medicine: "IV cannula 18G",
     title: "IV cannula 18G",
     source: "Catalog",
+    productType: "Consumable",
+    form: "medicalDevice",
+    category: "Medical devices",
     starred: true,
   },
   {
     medicine: "Nitrile gloves (M)",
     title: "Nitrile gloves (M)",
     source: "Org",
+    productType: "Consumable",
+    form: "protectiveEquipment",
+    category: "Protective equipment",
     frequent: true,
   },
   {
@@ -322,18 +386,27 @@ const MEDICATION_PICKER_ITEMS: MedicationCatalogItem[] = [
     title: "Mox 500",
     detail: "Amoxicillin 500 mg",
     source: "Formulary",
+    productType: "Medication",
+    form: "capsule",
+    category: "Antibiotics",
     frequent: true,
   },
   {
     medicine: "Ensure powder",
     title: "Ensure powder",
     source: "Personal",
+    productType: "Nutritional Product",
+    form: "powder",
+    category: "Nutritional supplements",
     frequent: true,
   },
   {
     medicine: "Surgical mask",
     title: "Surgical mask",
     source: "Formulary",
+    productType: "Consumable",
+    form: "protectiveEquipment",
+    category: "Protective equipment",
     frequent: true,
   },
   {
@@ -341,6 +414,9 @@ const MEDICATION_PICKER_ITEMS: MedicationCatalogItem[] = [
     title: "Calpol 500",
     detail: "Paracetamol 500 mg",
     source: "Formulary",
+    productType: "Medication",
+    form: "tablet",
+    category: "Analgesics",
     frequent: true,
   },
   {
@@ -348,44 +424,88 @@ const MEDICATION_PICKER_ITEMS: MedicationCatalogItem[] = [
     title: "Pantoprazole 40 mg tablet",
     detail: "Pantoprazole 40 mg",
     source: "Personal",
+    productType: "Medication",
+    form: "tablet",
+    category: "Gastro",
   },
   {
     medicine: MEDICINE_CATALOG[4],
     title: "Ondansetron 4 mg tablet",
     detail: "Ondansetron 4 mg",
     source: "Formulary",
+    productType: "Medication",
+    form: "tablet",
+    category: "Gastro",
   },
   {
     medicine: MEDICINE_CATALOG[5],
     title: "Metformin 500 mg tablet",
     detail: "Metformin 500 mg",
     source: "Formulary",
+    productType: "Medication",
+    form: "tablet",
+    category: "Diabetes",
   },
   {
     medicine: MEDICINE_CATALOG[6],
     title: "Atorvastatin 10 mg tablet",
     detail: "Atorvastatin 10 mg",
     source: "Personal",
+    productType: "Medication",
+    form: "tablet",
+    category: "Cardiovascular",
   },
   {
     medicine: MEDICINE_CATALOG[7],
     title: "Cetirizine 10 mg tablet",
     detail: "Cetirizine 10 mg",
     source: "Catalog",
+    productType: "Medication",
+    form: "tablet",
+    category: "Allergy",
   },
 ];
+
+interface MedicationProductCategory {
+  productType: MedicationProductType;
+  category: string;
+}
+
+const MEDICATION_PRODUCT_CATEGORIES: MedicationProductCategory[] =
+  MEDICATION_PRODUCT_TYPES.flatMap((productType) =>
+    Array.from(
+      new Set(
+        MEDICATION_PICKER_ITEMS.filter(
+          (item) => item.productType === productType
+        ).map((item) => item.category)
+      ),
+      (category) => ({ productType, category })
+    )
+  );
+
+function productCategoryKey(
+  productType: MedicationProductType,
+  category: string
+) {
+  return `${productType}::${category}`;
+}
+
+const PRODUCT_TYPE_FILTER_GROUP = "__product_type_filters__";
+const PRODUCT_CATEGORY_FILTER_GROUP = "__product_category_filters__";
+const FILTER_TYPE_PREFIX = "filter-type::";
+const FILTER_CATEGORY_PREFIX = "filter-category::";
 
 const PICKER_ITEM_BY_MEDICINE = new Map(
   MEDICATION_PICKER_ITEMS.map((item) => [item.medicine, item])
 );
 
-const MEDICATION_SOURCES: (MedicationSource | "All")[] = [
+const MEDICATION_SOURCES = [
   "All",
   "Personal",
   "Formulary",
   "Org",
   "Catalog",
-];
+] as const;
 
 const MEDICATION_TEMPLATES = [
   {
@@ -610,15 +730,19 @@ interface DoseCellProps {
 function DoseStack({
   row,
   children,
+  markActive = false,
 }: DoseCellProps & {
   children: (dose: DoseLine, index: number) => React.ReactNode;
+  markActive?: boolean;
 }) {
-  const { activeId, doseRowHeights, setActiveId } = useMedicationGrid();
+  const { activeId, doseRowHeights } = useMedicationGrid();
   return (
     <div
       className="divide-border flex flex-col divide-y divide-dashed"
-      data-row-active={activeId === row.original.id || undefined}
-      onFocus={() => setActiveId(row.original.id)}
+      data-row-active={
+        markActive && activeId === row.original.id ? true : undefined
+      }
+      data-medication-row-id={row.original.id}
     >
       {row.original.doses.map((dose, index) => (
         <div
@@ -731,7 +855,7 @@ function DosageInput({
 function DosageCell({ row }: DoseCellProps) {
   const { updateDose, addDose } = useMedicationGrid();
   return (
-    <DoseStack row={row}>
+    <DoseStack row={row} markActive>
       {(dose, index) => (
         <>
           <DosageInput
@@ -893,6 +1017,9 @@ function DurationInput({
           placeholder="e.g. 5 days"
           className="bg-background w-full min-w-0"
           showTrigger={false}
+          onClick={() => {
+            if (!open) openPopup();
+          }}
           onKeyDown={(event) => {
             // Space opens the presets when the list is closed; while typing it stays a space.
             if (event.key === " " && !open) {
@@ -1087,9 +1214,12 @@ function ScheduleCombobox({
       }}
       inputValue={query}
       onInputValueChange={setQuery}
-      onOpenChange={(open) => {
+      onOpenChange={(open, details) => {
         if (open) pickedRef.current = false;
-        else setQuery("");
+        else {
+          pickedRef.current = details.reason !== "escape-key";
+          setQuery("");
+        }
       }}
     >
       <ComboboxTrigger
@@ -1851,7 +1981,7 @@ function RowActionsCell({ row }: DoseCellProps) {
   );
 }
 
-/** Saved notes read as text until their row is active; clicking the text edits it. */
+/** Saved notes stay readable until activated; SOS reasons remain directly editable. */
 function NoteRow({ medication }: { medication: MedicationRequest }) {
   const { updateNote, updateDose, activeId, setActiveId, prnReasonPicks } =
     useMedicationGrid();
@@ -1900,6 +2030,7 @@ function NoteRow({ medication }: { medication: MedicationRequest }) {
         <div className="px-2 py-1.5">
           <button
             type="button"
+            data-medication-note-preview
             className="focus-visible:ring-ring/50 flex w-full cursor-text items-center gap-2 rounded-sm text-left text-sm whitespace-normal outline-none focus-visible:ring-3"
             onClick={() => {
               setFocusOnMount(true);
@@ -2032,9 +2163,24 @@ function MedicationPicker({
   defaultOpen?: boolean;
 }) {
   const fieldRef = React.useRef<HTMLDivElement>(null);
+  const sourceFiltersRef = React.useRef<HTMLDivElement>(null);
+  const typeFiltersId = React.useId();
+  const primaryModifier = getPrimaryShortcutModifier();
+  const preservePopupForFilterActionRef = React.useRef(false);
+  const [open, setOpen] = React.useState(defaultOpen);
+  const [inputFocused, setInputFocused] = React.useState(false);
+  const [typeFiltersOpen, setTypeFiltersOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
-  const [source, setSource] =
-    React.useState<(typeof MEDICATION_SOURCES)[number]>("All");
+  const [selectedProductTypes, setSelectedProductTypes] = React.useState<
+    Set<MedicationProductType>
+  >(() => new Set());
+  const [selectedProductCategories, setSelectedProductCategories] =
+    React.useState<Set<string>>(() => new Set());
+  const [categoryProductType, setCategoryProductType] =
+    React.useState<MedicationProductType | null>(null);
+  const [selectedSources, setSelectedSources] = React.useState<
+    Set<(typeof MEDICATION_SOURCES)[number]>
+  >(() => new Set(["All"]));
   const [starred, setStarred] = React.useState(
     () =>
       new Set(
@@ -2044,23 +2190,201 @@ function MedicationPicker({
       )
   );
 
+  const focusFirstTypeFilterOption = () => {
+    requestAnimationFrame(() => {
+      const input = fieldRef.current?.querySelector<HTMLInputElement>("input");
+      if (!input) return;
+
+      input.focus();
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+    });
+  };
+
+  const showTypeFilters = () => {
+    if (typeFiltersOpen) return;
+    if (!open) setOpen(true);
+    const activeProductType =
+      categoryProductType && selectedProductTypes.has(categoryProductType)
+        ? categoryProductType
+        : (MEDICATION_PRODUCT_TYPES.find((productType) =>
+            selectedProductTypes.has(productType)
+          ) ?? null);
+    setCategoryProductType(activeProductType);
+    setTypeFiltersOpen(true);
+    focusFirstTypeFilterOption();
+  };
+
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        !(primaryModifier === "Meta" ? event.metaKey : event.ctrlKey) ||
+        !event.shiftKey ||
+        event.altKey ||
+        event.key.toLowerCase() !== "m"
+      ) {
+        return;
+      }
+
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || target.closest("input, textarea, select"))
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      fieldRef.current?.querySelector<HTMLInputElement>("input")?.focus();
+      setOpen(true);
+      setCategoryProductType(null);
+      setTypeFiltersOpen(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [primaryModifier]);
+
   const matching = React.useMemo(() => {
     const query = search.trim().toLowerCase();
     return MEDICATION_PICKER_ITEMS.filter(
       (item) =>
-        (source === "All" || item.source === source) &&
+        (selectedSources.has("All") || selectedSources.has(item.source)) &&
+        (!selectedProductTypes.size ||
+          selectedProductTypes.has(item.productType)) &&
+        (!selectedProductCategories.size ||
+          selectedProductCategories.has(
+            productCategoryKey(item.productType, item.category)
+          )) &&
         (!query ||
           `${item.title} ${item.detail ?? ""} ${item.medicine}`
             .toLowerCase()
             .includes(query))
     );
-  }, [search, source]);
+  }, [
+    search,
+    selectedProductCategories,
+    selectedProductTypes,
+    selectedSources,
+  ]);
 
-  const groups = React.useMemo(() => {
-    if (source !== "All") {
-      return matching.length
-        ? [{ value: source, items: matching.map((item) => item.medicine) }]
-        : [];
+  const openProductCategories = (productType: MedicationProductType) => {
+    setSelectedProductTypes((current) => {
+      const next = new Set(current);
+      next.add(productType);
+      return next;
+    });
+    setCategoryProductType(productType);
+  };
+
+  const toggleProductCategory = (
+    productType: MedicationProductType,
+    category: string
+  ) => {
+    const key = productCategoryKey(productType, category);
+    setSelectedProductCategories((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    setTypeFiltersOpen(false);
+  };
+
+  const removeLatestProductCategory = (productType: MedicationProductType) => {
+    setSelectedProductCategories((current) => {
+      const prefix = `${productType}::`;
+      const latestCategory = [...current]
+        .filter((key) => key.startsWith(prefix))
+        .at(-1);
+      if (!latestCategory) return current;
+
+      const next = new Set(current);
+      next.delete(latestCategory);
+      return next;
+    });
+  };
+
+  const removeProductTypeFilter = (productType: MedicationProductType) => {
+    setSelectedProductTypes((current) => {
+      const next = new Set(current);
+      next.delete(productType);
+      return next;
+    });
+    setSelectedProductCategories(
+      (current) =>
+        new Set(
+          [...current].filter((key) => !key.startsWith(`${productType}::`))
+        )
+    );
+    setCategoryProductType((current) =>
+      current === productType ? null : current
+    );
+  };
+
+  const removeProductCategoryFilter = (
+    productType: MedicationProductType,
+    category: string
+  ) => {
+    setSelectedProductCategories((current) => {
+      const next = new Set(current);
+      next.delete(productCategoryKey(productType, category));
+      return next;
+    });
+    setOpen(true);
+    setCategoryProductType(productType);
+    setTypeFiltersOpen(true);
+  };
+
+  const handleBadgeDeleteKeyDown = (
+    event: React.KeyboardEvent<HTMLSpanElement>
+  ) => {
+    if (
+      (event.key !== "Backspace" && event.key !== "Delete") ||
+      !(event.target instanceof HTMLButtonElement)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget
+      .querySelector<HTMLButtonElement>('button[aria-label="Remove"]')
+      ?.click();
+  };
+
+  const backToProductTypes = () => {
+    preservePopupForFilterActionRef.current = true;
+    setOpen(true);
+    if (categoryProductType) {
+      removeLatestProductCategory(categoryProductType);
+    }
+    setCategoryProductType(null);
+    setTypeFiltersOpen(true);
+  };
+
+  const productGroups = React.useMemo(() => {
+    if (!selectedSources.has("All")) {
+      return [...selectedSources].map((source) => ({
+        value: source,
+        items: matching
+          .filter((item) => item.source === source)
+          .map((item) => item.medicine),
+      }));
+    }
+
+    if (selectedProductTypes.size || selectedProductCategories.size) {
+      return [
+        {
+          value: "Products",
+          items: matching.map((item) => item.medicine),
+        },
+      ];
     }
 
     const featured = matching.filter((item) => starred.has(item.medicine));
@@ -2090,7 +2414,145 @@ function MedicationPicker({
         items: remaining.map((item) => item.medicine),
       },
     ].filter((group): group is { value: string; items: string[] } => !!group);
-  }, [matching, search, source, starred]);
+  }, [
+    matching,
+    search,
+    selectedProductCategories,
+    selectedProductTypes,
+    selectedSources,
+    starred,
+  ]);
+
+  const groups = React.useMemo(() => {
+    if (typeFiltersOpen && !categoryProductType) {
+      return [
+        {
+          value: PRODUCT_TYPE_FILTER_GROUP,
+          items: MEDICATION_PRODUCT_TYPES.map(
+            (productType) => `${FILTER_TYPE_PREFIX}${productType}`
+          ),
+        },
+      ];
+    }
+
+    const filterGroups: { value: string; items: string[] }[] = [];
+    if (typeFiltersOpen && categoryProductType) {
+      filterGroups.push({
+        value: PRODUCT_CATEGORY_FILTER_GROUP,
+        items: [
+          ...MEDICATION_PRODUCT_CATEGORIES.filter(
+            (entry) => entry.productType === categoryProductType
+          ).map(
+            ({ productType, category }) =>
+              `${FILTER_CATEGORY_PREFIX}${productCategoryKey(productType, category)}`
+          ),
+        ],
+      });
+    }
+    return [...filterGroups, ...productGroups];
+  }, [categoryProductType, productGroups, typeFiltersOpen]);
+
+  const toggleSource = (source: (typeof MEDICATION_SOURCES)[number]) => {
+    setSelectedSources((current) => {
+      if (source === "All") return new Set(["All"]);
+      if (current.has("All")) return new Set([source]);
+
+      const next = new Set(current);
+      if (next.has(source)) next.delete(source);
+      else next.add(source);
+      return next.size ? next : new Set(["All"]);
+    });
+  };
+
+  const focusSourceFilters = () => {
+    setOpen(true);
+    requestAnimationFrame(() =>
+      sourceFiltersRef.current
+        ?.querySelector<HTMLButtonElement>("button")
+        ?.focus()
+    );
+  };
+
+  const focusFirstProductOption = () => {
+    const productGroupIndex = groups.findIndex(
+      (group) =>
+        group.value !== PRODUCT_TYPE_FILTER_GROUP &&
+        group.value !== PRODUCT_CATEGORY_FILTER_GROUP
+    );
+    if (productGroupIndex < 0 || !groups[productGroupIndex]?.items.length)
+      return;
+
+    const precedingOptionCount = groups
+      .slice(0, productGroupIndex)
+      .reduce((count, group) => count + group.items.length, 0);
+    const input = fieldRef.current?.querySelector<HTMLInputElement>("input");
+    if (!input) return;
+
+    input.focus();
+    Array.from({ length: precedingOptionCount + 1 }).forEach(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+    });
+  };
+
+  const handlePickerSelection = (value: string | null) => {
+    if (!value) return;
+
+    if (
+      value.startsWith(FILTER_TYPE_PREFIX) ||
+      value.startsWith(FILTER_CATEGORY_PREFIX)
+    ) {
+      setSearch("");
+    }
+
+    const productType = MEDICATION_PRODUCT_TYPES.find(
+      (option) => value === `${FILTER_TYPE_PREFIX}${option}`
+    );
+    if (productType) {
+      preservePopupForFilterActionRef.current = true;
+      setOpen(true);
+      setTypeFiltersOpen(true);
+      openProductCategories(productType);
+      return;
+    }
+
+    if (value.startsWith(FILTER_CATEGORY_PREFIX)) {
+      const key = value.slice(FILTER_CATEGORY_PREFIX.length);
+      const category = MEDICATION_PRODUCT_CATEGORIES.find(
+        (entry) => productCategoryKey(entry.productType, entry.category) === key
+      );
+      if (category) {
+        preservePopupForFilterActionRef.current = true;
+        setOpen(true);
+        toggleProductCategory(category.productType, category.category);
+      }
+      return;
+    }
+
+    if (!PICKER_ITEM_BY_MEDICINE.has(value)) return;
+    onSelect(value);
+    setSearch("");
+  };
+
+  const hasActiveFilters =
+    search.length > 0 ||
+    selectedProductTypes.size > 0 ||
+    selectedProductCategories.size > 0 ||
+    !selectedSources.has("All");
+
+  const clearAllFilters = () => {
+    setSearch("");
+    setSelectedProductTypes(new Set());
+    setSelectedProductCategories(new Set());
+    setSelectedSources(new Set(["All"]));
+    setCategoryProductType(null);
+    setTypeFiltersOpen(false);
+  };
 
   const toggleStar = (medicine: string) => {
     setStarred((current) => {
@@ -2101,68 +2563,365 @@ function MedicationPicker({
     });
   };
 
+  const renderPickerOption = (group: { value: string }, option: string) => {
+    if (group.value === PRODUCT_TYPE_FILTER_GROUP) {
+      const productType = MEDICATION_PRODUCT_TYPES.find(
+        (entry) => option === `${FILTER_TYPE_PREFIX}${entry}`
+      );
+      if (!productType) return null;
+      const selected = selectedProductTypes.has(productType);
+      const ProductTypeIcon = MEDICATION_PRODUCT_TYPE_ICONS[productType];
+      return (
+        <ComboboxItem
+          key={option}
+          value={option}
+          aria-label={`${productType}${selected ? ", selected" : ""}`}
+          className="h-11 gap-3 px-3 py-2 md:h-10"
+        >
+          <ProductTypeIcon
+            aria-hidden="true"
+            className="text-muted-foreground"
+          />
+          <span className="min-w-0 flex-1 truncate">{productType}</span>
+          {selected && <Check aria-hidden="true" />}
+          <ChevronRight aria-hidden="true" className="text-muted-foreground" />
+        </ComboboxItem>
+      );
+    }
+
+    if (group.value === PRODUCT_CATEGORY_FILTER_GROUP) {
+      const key = option.slice(FILTER_CATEGORY_PREFIX.length);
+      const category = MEDICATION_PRODUCT_CATEGORIES.find(
+        (entry) => productCategoryKey(entry.productType, entry.category) === key
+      );
+      if (!category) return null;
+      const selected = selectedProductCategories.has(key);
+      return (
+        <ComboboxItem
+          key={option}
+          value={option}
+          aria-label={`${category.category}${selected ? ", selected" : ""}`}
+          className="h-11 gap-3 px-3 py-2 md:h-10"
+        >
+          <Folder aria-hidden="true" className="text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">{category.category}</span>
+          {selected && <Check aria-hidden="true" />}
+        </ComboboxItem>
+      );
+    }
+
+    const item = PICKER_ITEM_BY_MEDICINE.get(option);
+    if (!item) return null;
+    const isStarred = starred.has(item.medicine);
+    const ProductIcon = MEDICATION_FORM_ICONS[item.form];
+    return (
+      <div key={item.medicine} className="relative flex items-center">
+        <ComboboxItem
+          value={item.medicine}
+          className="min-h-12 flex-1 gap-3 py-1.5 pr-30 pl-3 sm:pr-36"
+        >
+          <ProductIcon
+            aria-hidden="true"
+            className="text-muted-foreground size-4 shrink-0"
+          />
+          <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+            <span className="w-full truncate text-sm font-medium">
+              {item.title}
+            </span>
+            {item.detail && (
+              <span className="text-muted-foreground w-full truncate text-xs">
+                {item.detail}
+              </span>
+            )}
+          </span>
+        </ComboboxItem>
+        <Badge
+          variant={SOURCE_BADGE_VARIANTS[item.source]}
+          size="sm"
+          className="pointer-events-none absolute end-10 sm:end-14"
+        >
+          {item.source}
+        </Badge>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`${isStarred ? "Remove" : "Add"} ${item.title} ${isStarred ? "from" : "to"} favorites`}
+          aria-pressed={isStarred}
+          className="absolute end-1"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleStar(item.medicine);
+          }}
+        >
+          <Star
+            aria-hidden="true"
+            className={cn("size-4", isStarred && "fill-current text-amber-500")}
+          />
+        </Button>
+      </div>
+    );
+  };
+
   return (
     <Combobox
       items={groups}
-      defaultOpen={defaultOpen}
+      openOnInputClick
+      open={open}
+      onOpenChange={(nextOpen, details) => {
+        if (!nextOpen && details.reason === "focus-out") {
+          const target = document.activeElement;
+          const popup = sourceFiltersRef.current?.closest(
+            '[data-slot="combobox-content"]'
+          );
+          if (
+            target &&
+            (fieldRef.current?.contains(target) || popup?.contains(target))
+          ) {
+            return;
+          }
+        }
+        if (!nextOpen && preservePopupForFilterActionRef.current) {
+          preservePopupForFilterActionRef.current = false;
+          return;
+        }
+        setOpen(nextOpen);
+        if (!nextOpen) setTypeFiltersOpen(false);
+      }}
       value={null}
       inputValue={search}
       filter={null}
-      onInputValueChange={setSearch}
-      onValueChange={(medicine) => {
-        if (!medicine) return;
-        onSelect(medicine);
-        setSearch("");
+      autoHighlight
+      onInputValueChange={(value) => {
+        if (
+          value.startsWith(FILTER_TYPE_PREFIX) ||
+          value.startsWith(FILTER_CATEGORY_PREFIX)
+        ) {
+          return;
+        }
+        setSearch(value);
       }}
+      onValueChange={handlePickerSelection}
     >
-      <div ref={fieldRef} className="w-full">
+      <div
+        ref={fieldRef}
+        className="w-full"
+        onFocusCapture={(event) => {
+          setInputFocused(true);
+          if (!(event.target instanceof HTMLInputElement)) return;
+          setOpen(true);
+        }}
+        onBlurCapture={(event) => {
+          const nextTarget = event.relatedTarget;
+          if (
+            !(nextTarget instanceof Node) ||
+            !event.currentTarget.contains(nextTarget)
+          ) {
+            setInputFocused(false);
+          }
+        }}
+        onClickCapture={(event) => {
+          if (!(event.target instanceof HTMLInputElement)) return;
+          setOpen(true);
+          if (typeFiltersOpen) setTypeFiltersOpen(false);
+        }}
+      >
         <ComboboxInput
-          aria-label="Search medicine to add"
-          placeholder="Add medication"
-          className="bg-muted-background/20 border-primary has-[[data-slot=input-group-control]:focus-visible]:border-primary has-[[data-slot=input-group-control]:focus-visible]:ring-primary/30 w-full shadow-sm"
+          aria-label="Search medications to add"
+          aria-keyshortcuts={`${primaryModifier}+Shift+M`}
+          placeholder={
+            !open
+              ? "Add Medication"
+              : selectedProductTypes.size
+                ? "Type product name"
+                : "Search medication or type / to filter by product type"
+          }
+          className={cn(
+            "bg-muted-background/20 border-primary has-[[data-slot=input-group-control]:focus-visible]:border-primary has-[[data-slot=input-group-control]:focus-visible]:ring-primary/30 w-full shadow-sm",
+            selectedProductTypes.size > 0 && "max-sm:h-auto max-sm:flex-wrap"
+          )}
           inputClassName="placeholder:text-muted-foreground"
           showTrigger={false}
+          onKeyDown={(event) => {
+            if (event.key === "Tab" && !event.shiftKey && hasActiveFilters) {
+              const clearButton =
+                fieldRef.current?.querySelector<HTMLButtonElement>(
+                  'button[aria-label="Clear all filters"]'
+                );
+              if (clearButton) {
+                event.preventDefault();
+                setTimeout(() => clearButton.focus());
+                return;
+              }
+            }
+            if (event.key === "Tab" && event.shiftKey && open) {
+              event.preventDefault();
+              fieldRef.current
+                ?.querySelector<HTMLButtonElement>(
+                  'button[aria-label="Filter by type"]'
+                )
+                ?.focus();
+              return;
+            }
+            if (
+              event.key === "Escape" &&
+              typeFiltersOpen &&
+              categoryProductType
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+              backToProductTypes();
+              return;
+            }
+            if (
+              (event.key === "Backspace" || event.key === "Delete") &&
+              event.currentTarget.value === ""
+            ) {
+              const lastCategory = MEDICATION_PRODUCT_CATEGORIES.filter(
+                ({ productType, category }) =>
+                  selectedProductCategories.has(
+                    productCategoryKey(productType, category)
+                  )
+              ).at(-1);
+              if (lastCategory) {
+                event.preventDefault();
+                event.stopPropagation();
+                removeProductCategoryFilter(
+                  lastCategory.productType,
+                  lastCategory.category
+                );
+                return;
+              }
+
+              const lastProductType = MEDICATION_PRODUCT_TYPES.filter(
+                (productType) => selectedProductTypes.has(productType)
+              ).at(-1);
+              if (lastProductType) {
+                event.preventDefault();
+                event.stopPropagation();
+                removeProductTypeFilter(lastProductType);
+                return;
+              }
+            }
+            if (
+              event.key === "/" &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              !event.altKey
+            ) {
+              event.preventDefault();
+              setSearch("");
+              showTypeFilters();
+            }
+          }}
         >
           <InputGroupAddon
             align="inline-start"
-            className="text-primary pointer-events-none"
+            className={cn(
+              "text-primary gap-1.5",
+              selectedProductTypes.size > 0 && "max-sm:basis-full"
+            )}
           >
-            <Plus aria-hidden="true" />
+            {selectedProductTypes.size ? (
+              <Search aria-hidden="true" />
+            ) : (
+              <Plus aria-hidden="true" />
+            )}
+            {MEDICATION_PRODUCT_TYPES.filter((productType) =>
+              selectedProductTypes.has(productType)
+            ).map((productType) => (
+              <Badge
+                key={productType}
+                variant="purple"
+                onKeyDown={handleBadgeDeleteKeyDown}
+                onClose={(event) => {
+                  event.stopPropagation();
+                  removeProductTypeFilter(productType);
+                }}
+                className="max-w-full"
+              >
+                <span className="truncate">{productType}</span>
+              </Badge>
+            ))}
+            {MEDICATION_PRODUCT_CATEGORIES.filter(({ productType, category }) =>
+              selectedProductCategories.has(
+                productCategoryKey(productType, category)
+              )
+            ).map(({ productType, category }) => (
+              <Badge
+                key={productCategoryKey(productType, category)}
+                variant="success"
+                onKeyDown={handleBadgeDeleteKeyDown}
+                onClose={(event) => {
+                  event.stopPropagation();
+                  removeProductCategoryFilter(productType, category);
+                }}
+                className="max-w-full"
+              >
+                <span className="truncate">{category}</span>
+              </Badge>
+            ))}
           </InputGroupAddon>
           <InputGroupAddon
             align="inline-end"
-            className="pr-0.5 has-[>button]:mr-0"
+            className="gap-1 pr-0.5 has-[>button]:mr-0 has-[>kbd]:mr-0"
           >
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
+            <KbdGroup
+              aria-hidden="true"
+              className={cn((open || inputFocused) && "invisible")}
+            >
+              <Kbd>{primaryModifier === "Meta" ? "⌘" : "Ctrl"}</Kbd>
+              <Kbd>Shift</Kbd>
+              <Kbd>M</Kbd>
+            </KbdGroup>
+            {hasActiveFilters && (
+              <InputGroupButton
+                variant="ghost"
+                size="xs"
+                aria-label="Clear all filters"
+                className="gap-1"
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  clearAllFilters();
+                  fieldRef.current
+                    ?.querySelector<HTMLInputElement>("input")
+                    ?.focus();
+                }}
+              >
+                <X aria-hidden="true" />
+                Clear
+              </InputGroupButton>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <InputGroupButton
                   variant="ghost"
                   size="icon-xs"
-                  className="bg-muted hover:bg-muted/80 size-8.5 rounded-md"
-                  aria-label={`Medication source: ${source}`}
+                  aria-label="Filter by type"
+                  aria-expanded={typeFiltersOpen}
+                  aria-controls={typeFiltersId}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Tab" || event.shiftKey) {
+                      return;
+                    }
+                    event.preventDefault();
+                    if (typeFiltersOpen) focusFirstTypeFilterOption();
+                    else focusSourceFilters();
+                  }}
+                  onPointerDown={(event) => event.preventDefault()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    showTypeFilters();
+                  }}
                 >
                   <ListFilter aria-hidden="true" />
                 </InputGroupButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Medication source</DropdownMenuLabel>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuRadioGroup
-                  value={source}
-                  onValueChange={(value) =>
-                    setSource(value as (typeof MEDICATION_SOURCES)[number])
-                  }
-                >
-                  {MEDICATION_SOURCES.map((option) => (
-                    <DropdownMenuRadioItem key={option} value={option}>
-                      {option}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </TooltipTrigger>
+              <TooltipContent>Filter by type</TooltipContent>
+            </Tooltip>
           </InputGroupAddon>
         </ComboboxInput>
       </div>
@@ -2177,82 +2936,107 @@ function MedicationPicker({
         collisionBoundary={
           typeof document === "undefined" ? undefined : document.documentElement
         }
-        className="max-h-[calc(100dvh-5rem)] w-(--anchor-width) max-w-3xl min-w-0 overflow-y-auto data-closed:animate-none data-closed:duration-0 data-open:animate-none data-open:duration-0"
+        className="max-h-[min(34rem,calc(100dvh-5rem))] w-(--anchor-width) max-w-3xl min-w-0 overflow-y-auto shadow-lg data-closed:animate-none data-closed:duration-0 data-open:animate-none data-open:duration-0"
       >
-        <ComboboxEmpty>No medicines match this search.</ComboboxEmpty>
+        {!typeFiltersOpen && (
+          <div
+            ref={sourceFiltersRef}
+            role="group"
+            aria-label="Filter medicines by source"
+            className="flex flex-wrap gap-2 border-b p-2"
+          >
+            {MEDICATION_SOURCES.map((source) => {
+              const selected = selectedSources.has(source);
+              return (
+                <Toggle
+                  key={source}
+                  type="button"
+                  variant="outline"
+                  pressed={selected}
+                  aria-label={source}
+                  onPressedChange={() => toggleSource(source)}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Tab" &&
+                      event.shiftKey &&
+                      source === MEDICATION_SOURCES[0]
+                    ) {
+                      event.preventDefault();
+                      fieldRef.current
+                        ?.querySelector<HTMLButtonElement>(
+                          'button[aria-label="Filter by type"]'
+                        )
+                        ?.focus();
+                      return;
+                    }
+                    if (event.key !== "ArrowDown") return;
+                    event.preventDefault();
+                    focusFirstProductOption();
+                  }}
+                  className="gap-2 px-4"
+                >
+                  {selected && <Check aria-hidden="true" />}
+                  {source}
+                </Toggle>
+              );
+            })}
+          </div>
+        )}
+        {typeFiltersOpen && categoryProductType && (
+          <div className="bg-popover sticky top-0 z-10 flex items-center gap-1.5 border-b px-2 py-2 text-xs font-medium">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Back to product types"
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                event.stopPropagation();
+                backToProductTypes();
+              }}
+            >
+              <ChevronLeft aria-hidden="true" />
+            </Button>
+            <span>Filter {categoryProductType} by category</span>
+          </div>
+        )}
         <ComboboxList
           showScrollbar
-          className="max-h-[min(40rem,calc(var(--available-height)-4rem))] overflow-y-auto p-2"
+          className="max-h-[min(28rem,calc(100dvh-12rem))] overflow-y-auto p-2"
         >
           {(group, groupIndex) => (
-            <ComboboxGroup key={group.value} items={group.items}>
-              <ComboboxLabel className="px-2 py-2 text-xs font-medium">
-                {group.value}
-              </ComboboxLabel>
+            <ComboboxGroup
+              key={group.value}
+              id={
+                group.value === PRODUCT_TYPE_FILTER_GROUP ||
+                group.value === PRODUCT_CATEGORY_FILTER_GROUP
+                  ? typeFiltersId
+                  : undefined
+              }
+              items={group.items}
+            >
+              {group.value !== PRODUCT_CATEGORY_FILTER_GROUP && (
+                <ComboboxLabel className="px-2 py-2 text-xs font-medium">
+                  {group.value === PRODUCT_TYPE_FILTER_GROUP
+                    ? "Filter by product type"
+                    : group.value}
+                </ComboboxLabel>
+              )}
               <ComboboxCollection>
-                {(medicine) => {
-                  const item = PICKER_ITEM_BY_MEDICINE.get(medicine);
-                  if (!item) return null;
-                  const isStarred = starred.has(medicine);
-
-                  return (
-                    <div key={medicine} className="relative flex items-center">
-                      <ComboboxItem
-                        value={medicine}
-                        className="min-h-12 flex-1 gap-3 py-1.5 pr-30 pl-3 sm:pr-36"
-                      >
-                        <FileText
-                          aria-hidden="true"
-                          className="text-muted-foreground size-4 shrink-0"
-                        />
-                        <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                          <span className="w-full truncate text-sm font-medium">
-                            {item.title}
-                          </span>
-                          {item.detail && (
-                            <span className="text-muted-foreground w-full truncate text-xs">
-                              {item.detail}
-                            </span>
-                          )}
-                        </span>
-                      </ComboboxItem>
-                      <Badge
-                        variant={SOURCE_BADGE_VARIANTS[item.source]}
-                        size="sm"
-                        className="pointer-events-none absolute end-10 sm:end-14"
-                      >
-                        {item.source}
-                      </Badge>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`${isStarred ? "Remove" : "Add"} ${item.title} ${isStarred ? "from" : "to"} favorites`}
-                        aria-pressed={isStarred}
-                        className="absolute end-1"
-                        onPointerDown={(event) => event.preventDefault()}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          toggleStar(medicine);
-                        }}
-                      >
-                        <Star
-                          aria-hidden="true"
-                          className={cn(
-                            "size-4",
-                            isStarred && "fill-current text-amber-500"
-                          )}
-                        />
-                      </Button>
-                    </div>
-                  );
-                }}
+                {(option: string) => renderPickerOption(group, option)}
               </ComboboxCollection>
               {groupIndex < groups.length - 1 && <ComboboxSeparator />}
             </ComboboxGroup>
           )}
         </ComboboxList>
+        {matching.length === 0 && (
+          <div
+            className="text-muted-foreground border-t px-3 py-3 text-sm"
+            role="status"
+          >
+            No medicines match your search.
+          </div>
+        )}
       </ComboboxContent>
     </Combobox>
   );
@@ -2815,6 +3599,18 @@ export function MedicationRequestTemplate() {
                 {/* Clicks on the spanned Sl./Medicine cells focus that row's first dosage input. */}
                 <div
                   ref={gridRef}
+                  onFocusCapture={(event) => {
+                    if (!(event.target instanceof Element)) return;
+                    if (
+                      event.target.closest("[data-medication-note-preview]")
+                    ) {
+                      return;
+                    }
+                    const medicationId = event.target.closest<HTMLElement>(
+                      "[data-medication-row-id]"
+                    )?.dataset.medicationRowId;
+                    if (medicationId) setActiveId(medicationId);
+                  }}
                   onKeyDown={(event) => {
                     if (
                       event.key !== "Tab" ||
@@ -2855,10 +3651,12 @@ export function MedicationRequestTemplate() {
                     defaultExpanded={true}
                     className={gridClassName}
                     renderExpandedRow={(row) => (
-                      <NoteRow
-                        key={row.original.id}
-                        medication={row.original}
-                      />
+                      <div data-medication-row-id={row.original.id}>
+                        <NoteRow
+                          key={row.original.id}
+                          medication={row.original}
+                        />
+                      </div>
                     )}
                   />
                 </div>
