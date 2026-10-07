@@ -10,10 +10,12 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  CircleMinus,
   ClipboardList,
   FileText,
   History,
   ListFilter,
+  Pill,
   Plus,
   Settings2,
   Star,
@@ -47,6 +49,13 @@ import {
   ComboboxTrigger,
 } from "@/components/ui/combobox";
 import { DataTable, DataTableRowActions } from "@/components/ui/data-table";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -102,6 +111,7 @@ interface DoseLine {
   site: string | null;
   method: string | null;
   asNeeded: boolean;
+  prnReasons: string[];
 }
 
 interface MedicationRequest {
@@ -154,6 +164,28 @@ const SCHEDULE_VALUES = SCHEDULES.map((schedule) => schedule.value);
 const SCHEDULE_DESCRIPTIONS = new Map(
   SCHEDULES.map((schedule) => [schedule.value, schedule.description])
 );
+
+const PRN_SCHEDULE = "SOS";
+
+const PRN_REASONS = [
+  "Chronic nontraumatic intracranial subdural haematoma",
+  "Adenosine deaminase 2 deficiency",
+  "Malignant melanoma of skin of left wrist",
+  "Small bowel enteroscopy normal",
+  "Renal scarring due to vesicoureteral reflux",
+  "Venous ulcer of toe of left foot",
+  "Acquired arteriovenous malformation of vascular structure of gastrointestinal tract",
+  "Chronic respiratory failure due to obstructive sleep apnoea",
+  "Venous ulcer of left ankle",
+  "Pain",
+  "Fever",
+  "Nausea and vomiting",
+  "Breathlessness",
+  "Anxiety",
+  "Insomnia",
+];
+
+const DEFAULT_FAVORITE_PRN_REASONS = ["Pain", "Fever", "Nausea and vomiting"];
 
 const DURATIONS = [
   "3 days",
@@ -456,6 +488,7 @@ function createDose(overrides: Partial<DoseLine> = {}): DoseLine {
     site: null,
     method: null,
     asNeeded: false,
+    prnReasons: [],
     ...overrides,
   };
 }
@@ -501,6 +534,42 @@ function createInitialData(): MedicationRequest[] {
 
 // ─── Grid actions ─────────────────────────────────────────────────────────────
 
+/** Starred and recently picked options shared by every cell of one picker type. */
+interface FavoritePicks {
+  favorites: string[];
+  toggleFavorite: (item: string) => void;
+  recents: string[];
+  recordRecents: (items: string[]) => void;
+}
+
+function useFavoritePicks(
+  initialFavorites: string[],
+  initialRecents: string[] = []
+): FavoritePicks {
+  const [favorites, setFavorites] = React.useState(initialFavorites);
+  const [recents, setRecents] = React.useState(initialRecents);
+  return React.useMemo(
+    () => ({
+      favorites,
+      toggleFavorite: (item) =>
+        setFavorites((current) =>
+          current.includes(item)
+            ? current.filter((entry) => entry !== item)
+            : [...current, item]
+        ),
+      recents,
+      recordRecents: (items) => {
+        if (!items.length) return;
+        setRecents((current) => [
+          ...items,
+          ...current.filter((entry) => !items.includes(entry)),
+        ]);
+      },
+    }),
+    [favorites, recents]
+  );
+}
+
 interface MedicationGridActions {
   openOptions: (
     medicationId: string,
@@ -512,15 +581,14 @@ interface MedicationGridActions {
   setDoseRowHeight: (doseId: string, height: number | null) => void;
   addDose: (medId: string) => void;
   removeDose: (medId: string, doseId: string) => void;
-  duplicateMedication: (medId: string) => void;
   removeMedication: (medId: string) => void;
   updateNote: (medId: string, note: string) => void;
   activeId: string | null;
   setActiveId: (medId: string | null) => void;
-  favoriteInstructions: string[];
-  toggleFavoriteInstruction: (instruction: string) => void;
-  recentInstructions: string[];
-  recordRecentInstructions: (instructions: string[]) => void;
+  instructionPicks: FavoritePicks;
+  prnReasonPicks: FavoritePicks;
+  durationFocusDoseId: string | null;
+  focusDuration: (doseId: string | null) => void;
 }
 
 const MedicationGridContext = React.createContext<MedicationGridActions | null>(
@@ -714,12 +782,19 @@ type DurationPanel = "list" | "range" | "dates";
 
 function DurationInput({
   value,
+  previousDuration,
   label,
   onChange,
+  autoOpen = false,
+  onAutoOpened,
 }: {
   value: string | null;
+  /** The prior dose's duration; a day range there makes this dose continue it. */
+  previousDuration?: string | null;
   label: string;
   onChange: (duration: string | null) => void;
+  autoOpen?: boolean;
+  onAutoOpened?: () => void;
 }) {
   const fieldRef = React.useRef<HTMLDivElement>(null);
   const idPrefix = React.useId();
@@ -744,11 +819,35 @@ function DurationInput({
   const openPanel = (next: DurationPanel) => {
     if (next === "range") {
       const [, start = "", end = ""] = value?.match(DAY_RANGE_PATTERN) ?? [];
-      setRangeStart(start);
+      const previousEnd = previousDuration?.match(DAY_RANGE_PATTERN)?.[2];
+      setRangeStart(
+        start || (previousEnd ? String(Number(previousEnd) + 1) : "")
+      );
       setRangeEnd(end);
     }
     setPanel(next);
   };
+
+  const openPopup = () => {
+    setOpen(true);
+    setTyped(false);
+    const continuesRange =
+      DAY_RANGE_PATTERN.test(value ?? "") ||
+      (!value && DAY_RANGE_PATTERN.test(previousDuration ?? ""));
+    openPanel(continuesRange ? "range" : "list");
+  };
+
+  const autoOpenPopup = React.useEffectEvent(() => {
+    fieldRef.current?.querySelector("input")?.focus();
+    openPopup();
+    onAutoOpened?.();
+  });
+
+  React.useEffect(() => {
+    if (!autoOpen) return;
+    const timer = setTimeout(autoOpenPopup);
+    return () => clearTimeout(timer);
+  }, [autoOpen]);
 
   const start = Number(rangeStart);
   const end = Number(rangeEnd);
@@ -765,12 +864,16 @@ function DurationInput({
       autoHighlight={typed}
       openOnInputClick
       open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen);
-        if (!nextOpen) {
-          setTyped(false);
-          setPanel("list");
+      onOpenChange={(nextOpen, details) => {
+        if (nextOpen) {
+          // Typing opens to matching suggestions; any other open respects the range flow.
+          if (details.reason === "input-change") setOpen(true);
+          else openPopup();
+          return;
         }
+        setOpen(false);
+        setTyped(false);
+        setPanel("list");
       }}
       value={value && options.includes(value) ? value : null}
       inputValue={value ?? ""}
@@ -794,9 +897,7 @@ function DurationInput({
             // Space opens the presets when the list is closed; while typing it stays a space.
             if (event.key === " " && !open) {
               event.preventDefault();
-              setTyped(false);
-              setPanel("list");
-              setOpen(true);
+              openPopup();
             }
           }}
         />
@@ -871,9 +972,9 @@ function DurationInput({
                     type="number"
                     min="1"
                     inputMode="numeric"
-                    autoFocus
+                    autoFocus={!rangeStart}
                     value={rangeStart}
-                    placeholder="1"
+                    placeholder="e.g. 1"
                     onChange={(event) => setRangeStart(event.target.value)}
                   />
                 </Field>
@@ -884,8 +985,9 @@ function DurationInput({
                     type="number"
                     min={rangeStart || "1"}
                     inputMode="numeric"
+                    autoFocus={!!rangeStart}
                     value={rangeEnd}
-                    placeholder="3"
+                    placeholder="e.g. 3"
                     onChange={(event) => setRangeEnd(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" && rangeValid) {
@@ -933,16 +1035,20 @@ function DurationInput({
 }
 
 function DurationCell({ row }: DoseCellProps) {
-  const { updateDose } = useMedicationGrid();
+  const { updateDose, durationFocusDoseId, focusDuration } =
+    useMedicationGrid();
   return (
     <DoseStack row={row}>
       {(dose, index) => (
         <DurationInput
           value={dose.duration}
+          previousDuration={row.original.doses[index - 1]?.duration}
           label={`Duration for ${doseLabel(row, index)}`}
           onChange={(duration) =>
             updateDose(row.original.id, dose.id, { duration })
           }
+          autoOpen={durationFocusDoseId === dose.id}
+          onAutoOpened={() => focusDuration(null)}
         />
       )}
     </DoseStack>
@@ -959,6 +1065,8 @@ function ScheduleCombobox({
   onChange: (schedule: string | null) => void;
 }) {
   const [query, setQuery] = React.useState("");
+  // A pick hands focus to the duration field, so closing must not pull it back.
+  const pickedRef = React.useRef(false);
   const search = query.trim().toLowerCase();
   const items = search
     ? SCHEDULE_VALUES.filter((item) =>
@@ -973,11 +1081,15 @@ function ScheduleCombobox({
       filter={null}
       autoHighlight
       value={value}
-      onValueChange={onChange}
+      onValueChange={(next) => {
+        pickedRef.current = next !== null;
+        onChange(next);
+      }}
       inputValue={query}
       onInputValueChange={setQuery}
       onOpenChange={(open) => {
-        if (!open) setQuery("");
+        if (open) pickedRef.current = false;
+        else setQuery("");
       }}
     >
       <ComboboxTrigger
@@ -990,7 +1102,7 @@ function ScheduleCombobox({
           {value ?? "e.g. 1-0-1"}
         </span>
       </ComboboxTrigger>
-      <ComboboxContent className="w-72">
+      <ComboboxContent className="w-72" finalFocus={() => !pickedRef.current}>
         <ComboboxInput
           showTrigger={false}
           className="h-12! rounded-sm bg-transparent! md:h-10!"
@@ -1011,58 +1123,70 @@ function ScheduleCombobox({
 }
 
 function ScheduleCell({ row }: DoseCellProps) {
-  const { updateDose } = useMedicationGrid();
+  const { updateDose, focusDuration } = useMedicationGrid();
   return (
     <DoseStack row={row}>
       {(dose, index) => (
         <ScheduleCombobox
           value={dose.schedule}
           label={`Schedule for ${doseLabel(row, index)}`}
-          onChange={(schedule) =>
-            updateDose(row.original.id, dose.id, { schedule })
-          }
+          onChange={(schedule) => {
+            updateDose(row.original.id, dose.id, {
+              schedule,
+              ...(schedule !== PRN_SCHEDULE && { prnReasons: [] }),
+            });
+            if (schedule) focusDuration(dose.id);
+          }}
         />
       )}
     </DoseStack>
   );
 }
 
-function InstructionsCombobox({
+/** Searchable multi-select grouped as favorites, recently used, then the rest. */
+function FavoritesMultiCombobox({
   value,
   label,
   expanded,
   onChange,
+  options,
+  picks,
+  placeholder,
+  searchLabel,
+  searchPlaceholder,
+  emptyText,
+  allLabel,
 }: {
   value: string[];
   label: string;
   expanded: boolean;
-  onChange: (instructions: string[]) => void;
+  onChange: (next: string[]) => void;
+  options: string[];
+  picks: FavoritePicks;
+  placeholder: string;
+  searchLabel: string;
+  searchPlaceholder: string;
+  emptyText: string;
+  allLabel: string;
 }) {
-  const {
-    favoriteInstructions,
-    toggleFavoriteInstruction,
-    recentInstructions,
-    recordRecentInstructions,
-  } = useMedicationGrid();
+  const { favorites, toggleFavorite, recents, recordRecents } = picks;
   const [query, setQuery] = React.useState("");
   const search = query.trim().toLowerCase();
 
   const groups = React.useMemo(() => {
     const matches = (item: string) => item.toLowerCase().includes(search);
-    const favorites = favoriteInstructions.filter(matches);
-    const recent = recentInstructions.filter(
-      (item) => !favoriteInstructions.includes(item) && matches(item)
+    const favoriteItems = favorites.filter(matches);
+    const recentItems = recents.filter(
+      (item) => !favorites.includes(item) && matches(item)
     );
-    const listed = new Set([...favorites, ...recent]);
-    const rest = INSTRUCTIONS.filter(
-      (item) => !listed.has(item) && matches(item)
-    );
+    const listed = new Set([...favoriteItems, ...recentItems]);
+    const rest = options.filter((item) => !listed.has(item) && matches(item));
     return [
-      { value: "Favorites", items: favorites },
-      { value: "Recently used", items: recent },
-      { value: "All instructions", items: rest },
+      { value: "Favorites", items: favoriteItems },
+      { value: "Recently used", items: recentItems },
+      { value: allLabel, items: rest },
     ].filter((group) => group.items.length > 0);
-  }, [favoriteInstructions, recentInstructions, search]);
+  }, [favorites, recents, options, allLabel, search]);
 
   return (
     <Combobox
@@ -1072,7 +1196,7 @@ function InstructionsCombobox({
       autoHighlight={!!search}
       value={value}
       onValueChange={(next: string[]) => {
-        recordRecentInstructions(next.filter((item) => !value.includes(item)));
+        recordRecents(next.filter((item) => !value.includes(item)));
         onChange(next);
       }}
       inputValue={query}
@@ -1096,11 +1220,11 @@ function InstructionsCombobox({
           )}
         >
           {value.length === 0
-            ? "Select instructions"
+            ? placeholder
             : (expanded ? value : value.slice(0, 1)).map((item) => (
                 <Badge
                   key={item}
-                  variant="purple"
+                  variant="pink"
                   size="sm"
                   className="max-w-full min-w-0 shrink"
                 >
@@ -1114,12 +1238,12 @@ function InstructionsCombobox({
           )}
         </span>
       </ComboboxTrigger>
-      <ComboboxContent className="w-80">
+      <ComboboxContent className="w-(--anchor-width) min-w-80">
         <ComboboxInput
           showTrigger={false}
           className="h-12! rounded-sm bg-transparent! md:h-10!"
-          aria-label="Search instructions"
-          placeholder="Select additional instructions"
+          aria-label={searchLabel}
+          placeholder={searchPlaceholder}
         />
         {value.length > 0 && (
           <div className="flex items-center justify-between gap-2 border-b px-3 py-1">
@@ -1141,7 +1265,7 @@ function InstructionsCombobox({
             </Button>
           </div>
         )}
-        <ComboboxEmpty>No instructions found.</ComboboxEmpty>
+        <ComboboxEmpty>{emptyText}</ComboboxEmpty>
         <ComboboxList showScrollbar>
           {(group: { value: string; items: string[] }, groupIndex: number) => (
             <ComboboxGroup key={group.value} items={group.items}>
@@ -1149,32 +1273,29 @@ function InstructionsCombobox({
                 {group.value}
               </ComboboxLabel>
               <ComboboxCollection>
-                {(instruction: string) => {
-                  const isFavorite = favoriteInstructions.includes(instruction);
+                {(item: string) => {
+                  const isFavorite = favorites.includes(item);
                   return (
-                    <div
-                      key={instruction}
-                      className="relative flex items-center"
-                    >
+                    <div key={item} className="relative flex items-center">
                       {/* Move the selected check to the start; the star owns the end. */}
                       <ComboboxItem
-                        value={instruction}
+                        value={item}
                         className="min-h-10 flex-1 pr-12 pl-8 [&>span:last-child]:right-auto [&>span:last-child]:left-2"
                       >
-                        {instruction}
+                        {item}
                       </ComboboxItem>
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={`${isFavorite ? "Remove" : "Add"} ${instruction} ${isFavorite ? "from" : "to"} favorites`}
+                        aria-label={`${isFavorite ? "Remove" : "Add"} ${item} ${isFavorite ? "from" : "to"} favorites`}
                         aria-pressed={isFavorite}
                         className="absolute end-1"
                         onPointerDown={(event) => event.preventDefault()}
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          toggleFavoriteInstruction(instruction);
+                          toggleFavorite(item);
                         }}
                       >
                         <Star
@@ -1199,7 +1320,8 @@ function InstructionsCombobox({
 }
 
 function InstructionsCell({ row }: DoseCellProps) {
-  const { updateDose, activeId, setDoseRowHeight } = useMedicationGrid();
+  const { updateDose, activeId, setDoseRowHeight, instructionPicks } =
+    useMedicationGrid();
   const expanded = activeId === row.original.id;
   const stackRef = React.useRef<HTMLDivElement>(null);
 
@@ -1240,13 +1362,20 @@ function InstructionsCell({ row }: DoseCellProps) {
     <div ref={stackRef}>
       <DoseStack row={row}>
         {(dose, index) => (
-          <InstructionsCombobox
+          <FavoritesMultiCombobox
             value={dose.instructions}
             label={`Instructions for ${doseLabel(row, index)}`}
             expanded={expanded}
             onChange={(instructions) =>
               updateDose(row.original.id, dose.id, { instructions })
             }
+            options={INSTRUCTIONS}
+            picks={instructionPicks}
+            placeholder="Select instructions"
+            searchLabel="Search instructions"
+            searchPlaceholder="Select additional instructions"
+            emptyText="No instructions found."
+            allLabel="All instructions"
           />
         )}
       </DoseStack>
@@ -1689,32 +1818,31 @@ function MedicationOptionsSheet({
 }
 
 function RowActionsCell({ row }: DoseCellProps) {
-  const { addDose, removeDose, duplicateMedication, removeMedication } =
-    useMedicationGrid();
+  const { addDose, removeDose, removeMedication } = useMedicationGrid();
   const medication = row.original;
   return (
     <DoseStack row={row}>
       {(dose) => (
         <DataTableRowActions triggerClassName="shadow-none">
           <DropdownMenuItem onClick={() => addDose(medication.id)}>
+            <Plus aria-hidden="true" />
             Add tapering dose
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => duplicateMedication(medication.id)}>
-            Duplicate medicine
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {medication.doses.length > 1 && (
             <DropdownMenuItem
-              className="text-destructive"
+              variant="destructive"
               onClick={() => removeDose(medication.id, dose.id)}
             >
+              <CircleMinus aria-hidden="true" />
               Remove this dose
             </DropdownMenuItem>
           )}
           <DropdownMenuItem
-            className="text-destructive"
+            variant="destructive"
             onClick={() => removeMedication(medication.id)}
           >
+            <Trash2 aria-hidden="true" />
             Remove medicine
           </DropdownMenuItem>
         </DataTableRowActions>
@@ -1725,9 +1853,13 @@ function RowActionsCell({ row }: DoseCellProps) {
 
 /** Saved notes read as text until their row is active; clicking the text edits it. */
 function NoteRow({ medication }: { medication: MedicationRequest }) {
-  const { updateNote, activeId, setActiveId } = useMedicationGrid();
+  const { updateNote, updateDose, activeId, setActiveId, prnReasonPicks } =
+    useMedicationGrid();
   const [focusOnMount, setFocusOnMount] = React.useState(false);
   const isActive = activeId === medication.id;
+  const prnDoses = medication.doses
+    .map((dose, index) => ({ dose, index }))
+    .filter(({ dose }) => dose.schedule === PRN_SCHEDULE);
 
   const focusAtEnd = React.useCallback((el: HTMLTextAreaElement | null) => {
     if (!el) return;
@@ -1735,44 +1867,76 @@ function NoteRow({ medication }: { medication: MedicationRequest }) {
     el.setSelectionRange(el.value.length, el.value.length);
   }, []);
 
+  const prnReasons = prnDoses.length > 0 && (
+    <div className="flex flex-col gap-2 px-2 pt-2">
+      {prnDoses.map(({ dose, index }) => (
+        <div key={dose.id} className="w-full">
+          <FavoritesMultiCombobox
+            value={dose.prnReasons}
+            label={`Select reason for SOS, ${medication.medicine}${
+              medication.doses.length > 1 ? `, dose ${index + 1}` : ""
+            }`}
+            expanded={isActive}
+            onChange={(prnReasons) =>
+              updateDose(medication.id, dose.id, { prnReasons })
+            }
+            options={PRN_REASONS}
+            picks={prnReasonPicks}
+            placeholder="Select reason for SOS"
+            searchLabel="Search reasons for SOS"
+            searchPlaceholder="Select reason for SOS"
+            emptyText="No reasons found."
+            allLabel="All reasons"
+          />
+        </div>
+      ))}
+    </div>
+  );
+
   if (medication.note && !isActive) {
     return (
-      <div className="px-2 py-1.5">
-        <button
-          type="button"
-          className="focus-visible:ring-ring/50 flex w-full cursor-text items-center gap-2 rounded-sm text-left text-sm whitespace-normal outline-none focus-visible:ring-3"
-          onClick={() => {
-            setFocusOnMount(true);
-            setActiveId(medication.id);
-          }}
-        >
-          <span className="flex-1">
-            <span className="font-medium">Note:</span> {medication.note}
-          </span>
-          <span className="sr-only">(edit note)</span>
-          <SquarePen
-            aria-hidden="true"
-            className="text-muted-foreground size-4 shrink-0"
-          />
-        </button>
-      </div>
+      <>
+        {prnReasons}
+        <div className="px-2 py-1.5">
+          <button
+            type="button"
+            className="focus-visible:ring-ring/50 flex w-full cursor-text items-center gap-2 rounded-sm text-left text-sm whitespace-normal outline-none focus-visible:ring-3"
+            onClick={() => {
+              setFocusOnMount(true);
+              setActiveId(medication.id);
+            }}
+          >
+            <span className="flex-1">
+              <span className="font-medium">Note:</span> {medication.note}
+            </span>
+            <span className="sr-only">(edit note)</span>
+            <SquarePen
+              aria-hidden="true"
+              className="text-muted-foreground size-4 shrink-0"
+            />
+          </button>
+        </div>
+      </>
     );
   }
 
   return (
-    <div className="px-2 py-2">
-      <Textarea
-        rows={1}
-        className="bg-background min-h-10 resize-none"
-        aria-label={`Note for ${medication.medicine}`}
-        placeholder="Add note"
-        value={medication.note}
-        ref={focusOnMount ? focusAtEnd : undefined}
-        onFocus={() => setActiveId(medication.id)}
-        onBlur={() => setFocusOnMount(false)}
-        onChange={(e) => updateNote(medication.id, e.target.value)}
-      />
-    </div>
+    <>
+      {prnReasons}
+      <div className="px-2 py-2">
+        <Textarea
+          rows={1}
+          className="bg-background min-h-10 resize-none"
+          aria-label={`Note for ${medication.medicine}`}
+          placeholder="Add note"
+          value={medication.note}
+          ref={focusOnMount ? focusAtEnd : undefined}
+          onFocus={() => setActiveId(medication.id)}
+          onBlur={() => setFocusOnMount(false)}
+          onChange={(e) => updateNote(medication.id, e.target.value)}
+        />
+      </div>
+    </>
   );
 }
 
@@ -1862,8 +2026,10 @@ const SOURCE_BADGE_VARIANTS: Record<
 
 function MedicationPicker({
   onSelect,
+  defaultOpen = false,
 }: {
   onSelect: (medicine: string) => void;
+  defaultOpen?: boolean;
 }) {
   const fieldRef = React.useRef<HTMLDivElement>(null);
   const [search, setSearch] = React.useState("");
@@ -1938,6 +2104,7 @@ function MedicationPicker({
   return (
     <Combobox
       items={groups}
+      defaultOpen={defaultOpen}
       value={null}
       inputValue={search}
       filter={null}
@@ -1952,7 +2119,7 @@ function MedicationPicker({
         <ComboboxInput
           aria-label="Search medicine to add"
           placeholder="Add medication"
-          className="bg-background border-primary has-[[data-slot=input-group-control]:focus-visible]:border-primary has-[[data-slot=input-group-control]:focus-visible]:ring-primary/30 w-full shadow-sm"
+          className="bg-muted-background/20 border-primary has-[[data-slot=input-group-control]:focus-visible]:border-primary has-[[data-slot=input-group-control]:focus-visible]:ring-primary/30 w-full shadow-sm"
           inputClassName="placeholder:text-muted-foreground"
           showTrigger={false}
         >
@@ -2356,13 +2523,14 @@ export function MedicationRequestTemplate() {
     Record<string, number>
   >({});
   const [focusDoseId, setFocusDoseId] = React.useState<string | null>(null);
-  const [favoriteInstructions, setFavoriteInstructions] = React.useState(
-    DEFAULT_FAVORITE_INSTRUCTIONS
+  const [durationFocusDoseId, focusDuration] = React.useState<string | null>(
+    null
   );
-  const [recentInstructions, setRecentInstructions] = React.useState([
+  const instructionPicks = useFavoritePicks(DEFAULT_FAVORITE_INSTRUCTIONS, [
     "Until symptoms improve",
     "Then stop",
   ]);
+  const prnReasonPicks = useFavoritePicks(DEFAULT_FAVORITE_PRN_REASONS);
   const gridRef = React.useRef<HTMLDivElement>(null);
   const [optionsTarget, setOptionsTarget] =
     React.useState<MedicationOptionsTarget | null>(null);
@@ -2425,47 +2593,25 @@ export function MedicationRequestTemplate() {
           ...m,
           doses: m.doses.filter((d) => d.id !== doseId),
         })),
-      duplicateMedication: (medId) =>
-        setMedications((prev) => {
-          const index = prev.findIndex((m) => m.id === medId);
-          if (index === -1) return prev;
-          const source = prev[index];
-          const copy: MedicationRequest = {
-            ...source,
-            id: uid(),
-            doses: source.doses.map((d) => ({ ...d, id: uid() })),
-          };
-          return [...prev.slice(0, index + 1), copy, ...prev.slice(index + 1)];
-        }),
       removeMedication: (medId) =>
         setMedications((prev) => prev.filter((m) => m.id !== medId)),
       updateNote: (medId, note) =>
         updateMedication(medId, (m) => ({ ...m, note })),
       activeId,
       setActiveId,
-      favoriteInstructions,
-      toggleFavoriteInstruction: (instruction) =>
-        setFavoriteInstructions((current) =>
-          current.includes(instruction)
-            ? current.filter((item) => item !== instruction)
-            : [...current, instruction]
-        ),
-      recentInstructions,
-      recordRecentInstructions: (instructions) => {
-        if (!instructions.length) return;
-        setRecentInstructions((current) => [
-          ...instructions,
-          ...current.filter((item) => !instructions.includes(item)),
-        ]);
-      },
+      instructionPicks,
+      prnReasonPicks,
+      durationFocusDoseId,
+      focusDuration,
     }),
     [
       updateMedication,
       activeId,
       doseRowHeights,
       setDoseRowHeight,
-      favoriteInstructions,
-      recentInstructions,
+      instructionPicks,
+      prnReasonPicks,
+      durationFocusDoseId,
     ]
   );
 
@@ -2651,104 +2797,132 @@ export function MedicationRequestTemplate() {
           </CardHeader>
 
           <CardContent className="flex flex-col gap-4">
-            {/* Clicks on the spanned Sl./Medicine cells focus that row's first dosage input. */}
-            <div
-              ref={gridRef}
-              onKeyDown={(event) => {
-                if (
-                  event.key !== "Tab" ||
-                  event.altKey ||
-                  event.ctrlKey ||
-                  event.metaKey ||
-                  !gridRef.current?.contains(event.target as Node)
-                ) {
-                  return;
-                }
-                const order = gridTabOrder(gridRef.current);
-                const index = order.indexOf(event.target as HTMLElement);
-                if (index === -1) return;
-                const next = order[index + (event.shiftKey ? -1 : 1)];
-                if (next) {
-                  event.preventDefault();
-                  next.focus();
-                  return;
-                }
-                // At either end, hand off from the DOM edge so the browser leaves the grid naturally.
-                const domOrder = focusableIn(gridRef.current);
-                domOrder[event.shiftKey ? 0 : domOrder.length - 1]?.focus();
-              }}
-              onClick={(event) =>
-                (event.target as Element)
-                  .closest("td[rowspan]")
-                  ?.closest("tbody")
-                  ?.querySelector<HTMLInputElement>("input")
-                  ?.focus()
-              }
-            >
-              <DataTable
-                columns={columns}
-                data={medications}
-                hideToolbar
-                cellBorder={cellBorder}
-                dense={dense}
-                defaultExpanded={true}
-                className={gridClassName}
-                renderExpandedRow={(row) => (
-                  <NoteRow key={row.original.id} medication={row.original} />
-                )}
-              />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_1fr]">
-              <Field>
-                <FieldLabel htmlFor="medication-requester">
-                  Requester for all entries
-                </FieldLabel>
-                <Select
-                  value={requester}
-                  onValueChange={(value) => value && setRequester(value)}
+            {medications.length === 0 ? (
+              <Empty className="border p-8">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <Pill aria-hidden="true" />
+                  </EmptyMedia>
+                  <EmptyTitle>No medicines added</EmptyTitle>
+                  <EmptyDescription>
+                    Search below to add a medicine, or start from a template or
+                    medication history.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              <>
+                {/* Clicks on the spanned Sl./Medicine cells focus that row's first dosage input. */}
+                <div
+                  ref={gridRef}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key !== "Tab" ||
+                      event.altKey ||
+                      event.ctrlKey ||
+                      event.metaKey ||
+                      !gridRef.current?.contains(event.target as Node)
+                    ) {
+                      return;
+                    }
+                    const order = gridTabOrder(gridRef.current);
+                    const index = order.indexOf(event.target as HTMLElement);
+                    if (index === -1) return;
+                    const next = order[index + (event.shiftKey ? -1 : 1)];
+                    if (next) {
+                      event.preventDefault();
+                      next.focus();
+                      return;
+                    }
+                    // At either end, hand off from the DOM edge so the browser leaves the grid naturally.
+                    const domOrder = focusableIn(gridRef.current);
+                    domOrder[event.shiftKey ? 0 : domOrder.length - 1]?.focus();
+                  }}
+                  onClick={(event) =>
+                    (event.target as Element)
+                      .closest("td[rowspan]")
+                      ?.closest("tbody")
+                      ?.querySelector<HTMLInputElement>("input")
+                      ?.focus()
+                  }
                 >
-                  <SelectTrigger id="medication-requester" className="w-full">
-                    <SelectValue>
-                      {activeRequester && (
-                        <>
-                          <Avatar size="sm">
-                            <AvatarFallback>
-                              {activeRequester.initials}
-                            </AvatarFallback>
-                          </Avatar>
-                          {activeRequester.name}
-                        </>
-                      )}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent alignItemWithTrigger={false}>
-                    {REQUESTERS.map((person) => (
-                      <SelectItem key={person.value} value={person.value}>
-                        <Avatar size="sm">
-                          <AvatarFallback>{person.initials}</AvatarFallback>
-                        </Avatar>
-                        {person.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="medication-request-note">Note</FieldLabel>
-                <Input
-                  id="medication-request-note"
-                  placeholder="Add a note for the whole request"
-                  value={requestNote}
-                  onChange={(e) => setRequestNote(e.target.value)}
-                />
-              </Field>
-            </div>
+                  <DataTable
+                    columns={columns}
+                    data={medications}
+                    hideToolbar
+                    cellBorder={cellBorder}
+                    dense={dense}
+                    defaultExpanded={true}
+                    className={gridClassName}
+                    renderExpandedRow={(row) => (
+                      <NoteRow
+                        key={row.original.id}
+                        medication={row.original}
+                      />
+                    )}
+                  />
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_1fr]">
+                  <Field>
+                    <FieldLabel htmlFor="medication-requester">
+                      Requester for all entries
+                    </FieldLabel>
+                    <Select
+                      value={requester}
+                      onValueChange={(value) => value && setRequester(value)}
+                    >
+                      <SelectTrigger
+                        id="medication-requester"
+                        className="w-full"
+                      >
+                        <SelectValue>
+                          {activeRequester && (
+                            <>
+                              <Avatar size="sm">
+                                <AvatarFallback>
+                                  {activeRequester.initials}
+                                </AvatarFallback>
+                              </Avatar>
+                              {activeRequester.name}
+                            </>
+                          )}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent alignItemWithTrigger={false}>
+                        {REQUESTERS.map((person) => (
+                          <SelectItem key={person.value} value={person.value}>
+                            <Avatar size="sm">
+                              <AvatarFallback>{person.initials}</AvatarFallback>
+                            </Avatar>
+                            {person.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="medication-request-note">
+                      Note
+                    </FieldLabel>
+                    <Input
+                      id="medication-request-note"
+                      placeholder="Add a note for the whole request"
+                      value={requestNote}
+                      onChange={(e) => setRequestNote(e.target.value)}
+                    />
+                  </Field>
+                </div>
+              </>
+            )}
             <div
               data-slot="medication-picker-sticky"
               className="bg-card/95 sticky bottom-0 z-30 -mx-6 mt-auto border-t px-6 py-3 backdrop-blur"
             >
+              {/* Remount when the list empties so the suggestions open again. */}
               <MedicationPicker
+                key={medications.length === 0 ? "empty" : "filled"}
+                defaultOpen={medications.length === 0}
                 onSelect={(medicine) => addMedicines([{ medicine }])}
               />
             </div>
