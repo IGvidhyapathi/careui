@@ -1,7 +1,15 @@
 import * as React from "react";
 import type { ColumnDef, Row } from "@tanstack/react-table";
+import { format } from "date-fns";
+import type { DateRange } from "react-day-picker";
 import {
+  ArrowLeftRight,
   ArrowRight,
+  CalendarDays,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
   ClipboardList,
   FileText,
   History,
@@ -16,6 +24,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Card,
   CardAction,
@@ -54,22 +63,31 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { InputGroupAddon, InputGroupButton } from "@/components/ui/input-group";
 import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetBody,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -81,6 +99,8 @@ interface DoseLine {
   duration: string | null;
   instructions: string[];
   route: string;
+  site: string | null;
+  method: string | null;
   asNeeded: boolean;
 }
 
@@ -89,6 +109,14 @@ interface MedicationRequest {
   medicine: string;
   doses: DoseLine[];
   note: string;
+  intent: string;
+  authoredOn: string;
+  requester: string | null;
+}
+
+interface MedicationOptionsTarget {
+  medicationId: string;
+  doseId: string;
 }
 
 interface VaccinationRequest {
@@ -103,23 +131,42 @@ interface VaccinationRequest {
 }
 
 const SCHEDULES = [
-  "1 - 0 - 1",
-  "1 - 1 - 1",
-  "1 - 0 - 0",
-  "0 - 1 - 0",
-  "0 - 0 - 1",
-  "1 - 1 - 1 - 1",
+  { value: "1-0-1", description: "Twice a day" },
+  { value: "1-1-1", description: "Thrice a day" },
+  { value: "1-0-0", description: "Morning only" },
+  { value: "0-0-1", description: "Night only" },
+  { value: "0-1-0", description: "Noon only" },
+  { value: "1-1-0", description: "Morning & Noon" },
+  { value: "0-1-1", description: "Noon & Night" },
+  { value: "1-1-1-1", description: "Four times a day" },
+  { value: "SOS", description: "As needed" },
+  { value: "STAT", description: "Immediately" },
+  { value: "QD", description: "Once a day" },
+  { value: "QOD", description: "Alternate days" },
+  { value: "Q6H", description: "Every 6 hours" },
+  { value: "Q8H", description: "Every 8 hours" },
+  { value: "Q12H", description: "Every 12 hours" },
+  { value: "BED", description: "0-0-1" },
+  { value: "WK", description: "Weekly" },
 ];
 
+const SCHEDULE_VALUES = SCHEDULES.map((schedule) => schedule.value);
+const SCHEDULE_DESCRIPTIONS = new Map(
+  SCHEDULES.map((schedule) => [schedule.value, schedule.description])
+);
+
 const DURATIONS = [
-  "1 Day",
-  "3 Days",
-  "5 Days",
-  "7 Days",
-  "10 Days",
-  "14 Days",
-  "1 Month",
+  "3 days",
+  "5 days",
+  "7 days",
+  "10 days",
+  "14 days",
+  "1 month",
 ];
+
+const DURATION_UNITS = ["hour", "day", "week", "month", "year"];
+
+const DAY_RANGE_PATTERN = /^Day (\d+)–(\d+)$/;
 
 const DOSE_UNITS = [
   "tablets",
@@ -138,8 +185,22 @@ const INSTRUCTIONS = [
   "With food",
   "At bedtime",
   "Until symptoms improve",
+  "Until next appointment",
+  "Take on an empty stomach",
+  "Use with caution",
   "Then stop",
+  "Until finished",
+  "Follow directions",
+  "Then discontinue",
+  "Until gone",
+  "To be spread thinly",
   "Avoid alcohol",
+];
+
+const DEFAULT_FAVORITE_INSTRUCTIONS = [
+  "After food",
+  "Before food",
+  "At bedtime",
 ];
 
 const ROUTES = [
@@ -149,6 +210,25 @@ const ROUTES = [
   "Subcutaneous",
   "Sublingual",
 ];
+
+const MEDICATION_SITES = [
+  "Left arm",
+  "Right arm",
+  "Left deltoid",
+  "Right deltoid",
+  "Left thigh",
+  "Right thigh",
+];
+
+const ADMINISTRATION_METHODS = [
+  "Swallow",
+  "Dissolve under the tongue",
+  "IV push over 30 seconds",
+  "IV infusion",
+  "Injection",
+];
+
+const MEDICATION_INTENTS = ["Order", "Plan", "Proposal", "Original order"];
 
 const MEDICINE_CATALOG = [
   "Morphine sulfate 15 mg oral tablet",
@@ -263,6 +343,10 @@ const MEDICATION_PICKER_ITEMS: MedicationCatalogItem[] = [
   },
 ];
 
+const PICKER_ITEM_BY_MEDICINE = new Map(
+  MEDICATION_PICKER_ITEMS.map((item) => [item.medicine, item])
+);
+
 const MEDICATION_SOURCES: (MedicationSource | "All")[] = [
   "All",
   "Personal",
@@ -319,20 +403,20 @@ const VACCINE_SITES = [
 const MEDICATION_HISTORY = [
   {
     medicine: "Paracetamol 500 mg oral tablet",
-    schedule: "1 - 1 - 1",
-    duration: "5 Days",
+    schedule: "1-1-1",
+    duration: "5 days",
     date: "12 Aug 2026",
   },
   {
     medicine: "Amoxicillin 500 mg oral capsule",
-    schedule: "1 - 0 - 1",
-    duration: "7 Days",
+    schedule: "1-0-1",
+    duration: "7 days",
     date: "03 Jun 2026",
   },
   {
     medicine: "Pantoprazole 40 mg oral tablet",
-    schedule: "1 - 0 - 0",
-    duration: "14 Days",
+    schedule: "1-0-0",
+    duration: "14 days",
     date: "21 Mar 2026",
   },
 ];
@@ -369,6 +453,8 @@ function createDose(overrides: Partial<DoseLine> = {}): DoseLine {
     duration: null,
     instructions: [],
     route: "Oral",
+    site: null,
+    method: null,
     asNeeded: false,
     ...overrides,
   };
@@ -383,6 +469,9 @@ function createMedication(
     medicine,
     doses: [createDose()],
     note: "",
+    intent: "Order",
+    authoredOn: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
+    requester: null,
     ...overrides,
   };
 }
@@ -402,8 +491,8 @@ function createInitialData(): MedicationRequest[] {
     createMedication(morphine, { note: INITIAL_NOTE }),
     createMedication(morphine, {
       doses: [
-        createDose({ schedule: "1 - 0 - 1", duration: "3 Days" }),
-        createDose({ schedule: "0 - 0 - 1" }),
+        createDose({ schedule: "1-0-1", duration: "3 days" }),
+        createDose({ schedule: "0-0-1" }),
         createDose({ dosage: "" }),
       ],
     }),
@@ -413,6 +502,11 @@ function createInitialData(): MedicationRequest[] {
 // ─── Grid actions ─────────────────────────────────────────────────────────────
 
 interface MedicationGridActions {
+  openOptions: (
+    medicationId: string,
+    doseId: string,
+    trigger: HTMLButtonElement
+  ) => void;
   updateDose: (medId: string, doseId: string, patch: Partial<DoseLine>) => void;
   doseRowHeights: Record<string, number>;
   setDoseRowHeight: (doseId: string, height: number | null) => void;
@@ -423,6 +517,10 @@ interface MedicationGridActions {
   updateNote: (medId: string, note: string) => void;
   activeId: string | null;
   setActiveId: (medId: string | null) => void;
+  favoriteInstructions: string[];
+  toggleFavoriteInstruction: (instruction: string) => void;
+  recentInstructions: string[];
+  recordRecentInstructions: (instructions: string[]) => void;
 }
 
 const MedicationGridContext = React.createContext<MedicationGridActions | null>(
@@ -575,58 +673,528 @@ function DosageCell({ row }: DoseCellProps) {
               updateDose(row.original.id, dose.id, { dosage })
             }
           />
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Add tapering dose to ${row.original.medicine}`}
-            onClick={() => addDose(row.original.id)}
-          >
-            <Plus />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={`Add another dose to ${row.original.medicine}`}
+                onPointerDown={(event) => {
+                  if (event.button === 0) event.preventDefault();
+                }}
+                onClick={() => addDose(row.original.id)}
+              >
+                <Plus />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Add another dose</TooltipContent>
+          </Tooltip>
         </>
       )}
     </DoseStack>
   );
 }
 
-function OptionSelectCell({
-  row,
-  field,
+/** Typed numbers suggest every unit; otherwise the common presets are offered. */
+function durationOptions(input: string) {
+  const match = input.trim().match(/^(\d+(?:\.\d+)?)\s*([a-z]*)$/i);
+  if (!match) {
+    const query = input.trim().toLowerCase();
+    return DURATIONS.filter((option) => option.includes(query));
+  }
+  const [, amount, unit] = match;
+  const suffix = Number(amount) === 1 ? "" : "s";
+  return DURATION_UNITS.filter((option) =>
+    option.startsWith(unit.toLowerCase().replace(/s$/, ""))
+  ).map((option) => `${amount} ${option}${suffix}`);
+}
+
+type DurationPanel = "list" | "range" | "dates";
+
+function DurationInput({
+  value,
   label,
-  placeholder,
-  options,
-}: DoseCellProps & {
-  field: "schedule" | "duration";
+  onChange,
+}: {
+  value: string | null;
   label: string;
-  placeholder: string;
-  options: string[];
+  onChange: (duration: string | null) => void;
 }) {
+  const fieldRef = React.useRef<HTMLDivElement>(null);
+  const idPrefix = React.useId();
+  const [open, setOpen] = React.useState(false);
+  const [typed, setTyped] = React.useState(false);
+  const [panel, setPanel] = React.useState<DurationPanel>("list");
+  const [rangeStart, setRangeStart] = React.useState("");
+  const [rangeEnd, setRangeEnd] = React.useState("");
+  const [dates, setDates] = React.useState<DateRange | undefined>();
+  const options = typed ? durationOptions(value ?? "") : DURATIONS;
+
+  const commit = (duration: string) => {
+    onChange(duration);
+    setOpen(false);
+    setTyped(false);
+    setPanel("list");
+    requestAnimationFrame(() =>
+      fieldRef.current?.querySelector("input")?.focus()
+    );
+  };
+
+  const openPanel = (next: DurationPanel) => {
+    if (next === "range") {
+      const [, start = "", end = ""] = value?.match(DAY_RANGE_PATTERN) ?? [];
+      setRangeStart(start);
+      setRangeEnd(end);
+    }
+    setPanel(next);
+  };
+
+  const start = Number(rangeStart);
+  const end = Number(rangeEnd);
+  const rangeValid =
+    Number.isInteger(start) &&
+    Number.isInteger(end) &&
+    start >= 1 &&
+    end >= start;
+
+  return (
+    <Combobox
+      items={options}
+      filter={null}
+      autoHighlight={typed}
+      openOnInputClick
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          setTyped(false);
+          setPanel("list");
+        }
+      }}
+      value={value && options.includes(value) ? value : null}
+      inputValue={value ?? ""}
+      onInputValueChange={(next, details) => {
+        if (details.reason !== "input-change") return;
+        setTyped(true);
+        setPanel("list");
+        onChange(next || null);
+      }}
+      onValueChange={(next) => {
+        if (next) commit(next);
+      }}
+    >
+      <div ref={fieldRef} className="w-full min-w-0">
+        <ComboboxInput
+          aria-label={label}
+          placeholder="e.g. 5 days"
+          className="bg-background w-full min-w-0"
+          showTrigger={false}
+          onKeyDown={(event) => {
+            // Space opens the presets when the list is closed; while typing it stays a space.
+            if (event.key === " " && !open) {
+              event.preventDefault();
+              setTyped(false);
+              setPanel("list");
+              setOpen(true);
+            }
+          }}
+        />
+      </div>
+      <ComboboxContent anchor={fieldRef} className="w-auto min-w-64">
+        {panel === "list" && (
+          <>
+            <ComboboxEmpty>Type a number, e.g. 5</ComboboxEmpty>
+            <ComboboxList>
+              {(option: string) => (
+                <ComboboxItem key={option} value={option} className="min-h-10">
+                  {option}
+                </ComboboxItem>
+              )}
+            </ComboboxList>
+            <div className="border-t p-1">
+              {(
+                [
+                  {
+                    panel: "range",
+                    label: "Set a range of days",
+                    icon: ArrowLeftRight,
+                  },
+                  {
+                    panel: "dates",
+                    label: "Set fixed start & end dates",
+                    icon: CalendarDays,
+                  },
+                ] as const
+              ).map(({ panel: target, label: text, icon: Icon }) => (
+                <button
+                  key={target}
+                  type="button"
+                  className="hover:bg-accent focus-visible:bg-accent flex min-h-10 w-full items-center gap-2 rounded-sm px-2 text-left text-sm outline-none"
+                  onClick={() => openPanel(target)}
+                >
+                  <Icon aria-hidden="true" className="size-4 shrink-0" />
+                  <span className="flex-1">{text}</span>
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="text-muted-foreground size-4 shrink-0"
+                  />
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        {panel !== "list" && (
+          <div className="flex flex-col gap-3 p-2">
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Back to durations"
+                onClick={() => setPanel("list")}
+              >
+                <ChevronLeft />
+              </Button>
+              <span className="text-sm font-medium">
+                {panel === "range"
+                  ? "Set a range of days"
+                  : "Set fixed start & end dates"}
+              </span>
+            </div>
+            {panel === "range" ? (
+              <div className="grid grid-cols-2 gap-2">
+                <Field>
+                  <FieldLabel htmlFor={`${idPrefix}-from`}>From day</FieldLabel>
+                  <Input
+                    id={`${idPrefix}-from`}
+                    type="number"
+                    min="1"
+                    inputMode="numeric"
+                    autoFocus
+                    value={rangeStart}
+                    placeholder="1"
+                    onChange={(event) => setRangeStart(event.target.value)}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor={`${idPrefix}-to`}>To day</FieldLabel>
+                  <Input
+                    id={`${idPrefix}-to`}
+                    type="number"
+                    min={rangeStart || "1"}
+                    inputMode="numeric"
+                    value={rangeEnd}
+                    placeholder="3"
+                    onChange={(event) => setRangeEnd(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && rangeValid) {
+                        event.preventDefault();
+                        commit(`Day ${start}–${end}`);
+                      }
+                    }}
+                  />
+                </Field>
+              </div>
+            ) : (
+              <Calendar
+                mode="range"
+                selected={dates}
+                onSelect={setDates}
+                className="bg-transparent p-0"
+              />
+            )}
+            <Button
+              type="button"
+              disabled={
+                panel === "range" ? !rangeValid : !dates?.from || !dates?.to
+              }
+              onClick={() => {
+                if (panel === "range") {
+                  commit(`Day ${start}–${end}`);
+                } else if (dates?.from && dates.to) {
+                  commit(
+                    `${format(dates.from, "d MMM")} – ${format(dates.to, "d MMM")}`
+                  );
+                }
+              }}
+            >
+              {panel === "range" && rangeValid
+                ? `Set Day ${start}–${end}`
+                : panel === "dates" && dates?.from && dates.to
+                  ? `Set ${format(dates.from, "d MMM")} – ${format(dates.to, "d MMM")}`
+                  : "Set duration"}
+            </Button>
+          </div>
+        )}
+      </ComboboxContent>
+    </Combobox>
+  );
+}
+
+function DurationCell({ row }: DoseCellProps) {
   const { updateDose } = useMedicationGrid();
   return (
     <DoseStack row={row}>
       {(dose, index) => (
-        <Select
-          value={dose[field]}
-          onValueChange={(value) =>
-            updateDose(row.original.id, dose.id, { [field]: value })
+        <DurationInput
+          value={dose.duration}
+          label={`Duration for ${doseLabel(row, index)}`}
+          onChange={(duration) =>
+            updateDose(row.original.id, dose.id, { duration })
           }
-        >
-          <SelectTrigger
-            className="bg-background w-full min-w-0"
-            aria-label={`${label} for ${doseLabel(row, index)}`}
-          >
-            <SelectValue placeholder={placeholder} />
-          </SelectTrigger>
-          <SelectContent alignItemWithTrigger={false}>
-            {options.map((option) => (
-              <SelectItem key={option} value={option}>
-                {option}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        />
       )}
     </DoseStack>
+  );
+}
+
+function ScheduleCombobox({
+  value,
+  label,
+  onChange,
+}: {
+  value: string | null;
+  label: string;
+  onChange: (schedule: string | null) => void;
+}) {
+  const [query, setQuery] = React.useState("");
+  const search = query.trim().toLowerCase();
+  const items = search
+    ? SCHEDULE_VALUES.filter((item) =>
+        `${item} ${SCHEDULE_DESCRIPTIONS.get(item) ?? ""}`
+          .toLowerCase()
+          .includes(search)
+      )
+    : SCHEDULE_VALUES;
+  return (
+    <Combobox
+      items={items}
+      filter={null}
+      autoHighlight
+      value={value}
+      onValueChange={onChange}
+      inputValue={query}
+      onInputValueChange={setQuery}
+      onOpenChange={(open) => {
+        if (!open) setQuery("");
+      }}
+    >
+      <ComboboxTrigger
+        className="border-input focus-visible:border-ring focus-visible:ring-ring/50 bg-background dark:bg-input/30 dark:hover:bg-input/50 flex h-12 w-full min-w-0 items-center justify-between gap-1.5 rounded-md border py-2 pr-2.5 pl-3 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-3 md:h-10 md:pr-2 md:pl-2.5"
+        aria-label={label}
+      >
+        <span
+          className={cn("truncate", !value && "text-placeholder-foreground")}
+        >
+          {value ?? "e.g. 1-0-1"}
+        </span>
+      </ComboboxTrigger>
+      <ComboboxContent className="w-72">
+        <ComboboxInput
+          showTrigger={false}
+          className="h-12! rounded-sm bg-transparent! md:h-10!"
+          aria-label="Search schedules"
+          placeholder="Type eg. 1-0-1, SOS, Q6H"
+        />
+        <ComboboxEmpty>No schedules found.</ComboboxEmpty>
+        <ComboboxList showScrollbar>
+          {(item: string) => (
+            <ComboboxItem key={item} value={item}>
+              {item} ({SCHEDULE_DESCRIPTIONS.get(item)})
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
+  );
+}
+
+function ScheduleCell({ row }: DoseCellProps) {
+  const { updateDose } = useMedicationGrid();
+  return (
+    <DoseStack row={row}>
+      {(dose, index) => (
+        <ScheduleCombobox
+          value={dose.schedule}
+          label={`Schedule for ${doseLabel(row, index)}`}
+          onChange={(schedule) =>
+            updateDose(row.original.id, dose.id, { schedule })
+          }
+        />
+      )}
+    </DoseStack>
+  );
+}
+
+function InstructionsCombobox({
+  value,
+  label,
+  expanded,
+  onChange,
+}: {
+  value: string[];
+  label: string;
+  expanded: boolean;
+  onChange: (instructions: string[]) => void;
+}) {
+  const {
+    favoriteInstructions,
+    toggleFavoriteInstruction,
+    recentInstructions,
+    recordRecentInstructions,
+  } = useMedicationGrid();
+  const [query, setQuery] = React.useState("");
+  const search = query.trim().toLowerCase();
+
+  const groups = React.useMemo(() => {
+    const matches = (item: string) => item.toLowerCase().includes(search);
+    const favorites = favoriteInstructions.filter(matches);
+    const recent = recentInstructions.filter(
+      (item) => !favoriteInstructions.includes(item) && matches(item)
+    );
+    const listed = new Set([...favorites, ...recent]);
+    const rest = INSTRUCTIONS.filter(
+      (item) => !listed.has(item) && matches(item)
+    );
+    return [
+      { value: "Favorites", items: favorites },
+      { value: "Recently used", items: recent },
+      { value: "All instructions", items: rest },
+    ].filter((group) => group.items.length > 0);
+  }, [favoriteInstructions, recentInstructions, search]);
+
+  return (
+    <Combobox
+      multiple
+      items={groups}
+      filter={null}
+      autoHighlight={!!search}
+      value={value}
+      onValueChange={(next: string[]) => {
+        recordRecentInstructions(next.filter((item) => !value.includes(item)));
+        onChange(next);
+      }}
+      inputValue={query}
+      onInputValueChange={setQuery}
+      onOpenChange={(open) => {
+        if (!open) setQuery("");
+      }}
+    >
+      <ComboboxTrigger
+        className={cn(
+          "border-input focus-visible:border-ring focus-visible:ring-ring/50 bg-background dark:bg-input/30 dark:hover:bg-input/50 flex h-12 w-full min-w-0 items-center justify-between gap-1.5 rounded-md border py-2 pr-2.5 pl-3 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-3 md:h-10 md:pr-2 md:pl-2.5",
+          expanded && "h-auto min-h-12 py-1.5 md:h-auto md:min-h-10"
+        )}
+        aria-label={label}
+      >
+        <span
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-1.5",
+            expanded && "flex-wrap gap-1",
+            !value.length && "text-placeholder-foreground"
+          )}
+        >
+          {value.length === 0
+            ? "Select instructions"
+            : (expanded ? value : value.slice(0, 1)).map((item) => (
+                <Badge
+                  key={item}
+                  variant="purple"
+                  size="sm"
+                  className="max-w-full min-w-0 shrink"
+                >
+                  <span className="truncate">{item}</span>
+                </Badge>
+              ))}
+          {!expanded && value.length > 1 && (
+            <Badge variant="neutral" size="sm" className="shrink-0">
+              +{value.length - 1}
+            </Badge>
+          )}
+        </span>
+      </ComboboxTrigger>
+      <ComboboxContent className="w-80">
+        <ComboboxInput
+          showTrigger={false}
+          className="h-12! rounded-sm bg-transparent! md:h-10!"
+          aria-label="Search instructions"
+          placeholder="Select additional instructions"
+        />
+        {value.length > 0 && (
+          <div className="flex items-center justify-between gap-2 border-b px-3 py-1">
+            <span
+              className="text-muted-foreground text-xs tabular-nums"
+              role="status"
+            >
+              {value.length} selected
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive -me-2"
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => onChange([])}
+            >
+              Clear all
+            </Button>
+          </div>
+        )}
+        <ComboboxEmpty>No instructions found.</ComboboxEmpty>
+        <ComboboxList showScrollbar>
+          {(group: { value: string; items: string[] }, groupIndex: number) => (
+            <ComboboxGroup key={group.value} items={group.items}>
+              <ComboboxLabel className="px-2 py-2 text-xs font-medium">
+                {group.value}
+              </ComboboxLabel>
+              <ComboboxCollection>
+                {(instruction: string) => {
+                  const isFavorite = favoriteInstructions.includes(instruction);
+                  return (
+                    <div
+                      key={instruction}
+                      className="relative flex items-center"
+                    >
+                      {/* Move the selected check to the start; the star owns the end. */}
+                      <ComboboxItem
+                        value={instruction}
+                        className="min-h-10 flex-1 pr-12 pl-8 [&>span:last-child]:right-auto [&>span:last-child]:left-2"
+                      >
+                        {instruction}
+                      </ComboboxItem>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`${isFavorite ? "Remove" : "Add"} ${instruction} ${isFavorite ? "from" : "to"} favorites`}
+                        aria-pressed={isFavorite}
+                        className="absolute end-1"
+                        onPointerDown={(event) => event.preventDefault()}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          toggleFavoriteInstruction(instruction);
+                        }}
+                      >
+                        <Star
+                          aria-hidden="true"
+                          className={cn(
+                            "size-4",
+                            isFavorite && "fill-current text-amber-500"
+                          )}
+                        />
+                      </Button>
+                    </div>
+                  );
+                }}
+              </ComboboxCollection>
+              {groupIndex < groups.length - 1 && <ComboboxSeparator />}
+            </ComboboxGroup>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   );
 }
 
@@ -672,128 +1240,451 @@ function InstructionsCell({ row }: DoseCellProps) {
     <div ref={stackRef}>
       <DoseStack row={row}>
         {(dose, index) => (
-          <Select
-            modal={false}
-            multiple
+          <InstructionsCombobox
             value={dose.instructions}
-            onValueChange={(value) =>
-              updateDose(row.original.id, dose.id, { instructions: value })
+            label={`Instructions for ${doseLabel(row, index)}`}
+            expanded={expanded}
+            onChange={(instructions) =>
+              updateDose(row.original.id, dose.id, { instructions })
             }
-          >
-            <SelectTrigger
-              className={cn(
-                "bg-background w-full min-w-0",
-                expanded &&
-                  "min-h-12 py-1.5 data-[size=default]:h-auto md:min-h-10 md:data-[size=default]:h-auto"
-              )}
-              aria-label={`Instructions for ${doseLabel(row, index)}`}
-            >
-              <SelectValue
-                className={cn("min-w-0", expanded && "flex-wrap gap-1")}
-              >
-                {(value: string[]) => {
-                  if (value.length === 0) return "Select instructions";
-                  const visible = expanded ? value : value.slice(0, 1);
-                  return (
-                    <>
-                      {visible.map((item) => (
-                        <Badge
-                          key={item}
-                          variant="purple"
-                          size="sm"
-                          className="max-w-full min-w-0 shrink"
-                        >
-                          <span className="truncate">{item}</span>
-                        </Badge>
-                      ))}
-                      {!expanded && value.length > 1 && (
-                        <Badge variant="neutral" size="sm" className="shrink-0">
-                          +{value.length - 1}
-                        </Badge>
-                      )}
-                    </>
-                  );
-                }}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent alignItemWithTrigger={false}>
-              {INSTRUCTIONS.map((instruction) => (
-                <SelectItem key={instruction} value={instruction}>
-                  {instruction}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         )}
       </DoseStack>
     </div>
   );
 }
 
+function scrollMedicationDoseIntoView(doseId: string) {
+  const input = document.getElementById(`${doseId}-dosage`);
+  const row = input?.closest("tr");
+  if (!row) return;
+
+  const pickerFooter = document.querySelector<HTMLElement>(
+    '[data-slot="medication-picker-sticky"]'
+  );
+  let scrollContainer: HTMLElement | null = row.parentElement;
+  while (scrollContainer) {
+    const style = getComputedStyle(scrollContainer);
+    if (
+      /(auto|scroll)/.test(style.overflowY) &&
+      scrollContainer.scrollHeight > scrollContainer.clientHeight
+    ) {
+      break;
+    }
+    scrollContainer = scrollContainer.parentElement;
+  }
+
+  if (!scrollContainer) {
+    row.scrollIntoView({ block: "nearest" });
+    return;
+  }
+
+  const containerRect = scrollContainer.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  const visibleTop = Math.max(containerRect.top, 0) + 12;
+  const visibleBottom =
+    Math.min(
+      containerRect.bottom,
+      window.innerHeight,
+      pickerFooter?.getBoundingClientRect().top ?? window.innerHeight
+    ) - 12;
+  const topOverflow = visibleTop - rowRect.top;
+  const bottomOverflow = rowRect.bottom - visibleBottom;
+
+  if (topOverflow > 0 || rowRect.height > visibleBottom - visibleTop) {
+    scrollContainer.scrollTop -= topOverflow;
+  } else if (bottomOverflow > 0) {
+    scrollContainer.scrollTop += bottomOverflow;
+  }
+}
+
+function focusableIn(root: Element) {
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'input, button, textarea, select, [tabindex]:not([tabindex="-1"])'
+    )
+  ).filter(
+    (el) =>
+      el.tabIndex >= 0 &&
+      !el.hasAttribute("disabled") &&
+      el.getAttribute("aria-hidden") !== "true" &&
+      (el as HTMLInputElement).type !== "hidden" &&
+      el.getClientRects().length > 0
+  );
+}
+
+/** Tab walks each dose line across its columns before moving to the next dose. */
+function gridTabOrder(grid: Element) {
+  return Array.from(grid.querySelectorAll("tbody")).flatMap((tbody) =>
+    focusableIn(tbody)
+      .map((el, domIndex) => {
+        const doseRow = el.closest<HTMLElement>("[data-dose-row-id]");
+        const doseIndex = doseRow
+          ? Array.prototype.indexOf.call(
+              doseRow.parentElement?.children,
+              doseRow
+            )
+          : Number.POSITIVE_INFINITY;
+        const column = el.closest("td")?.cellIndex ?? 0;
+        return { el, doseIndex, column, domIndex };
+      })
+      .sort(
+        (a, b) =>
+          a.doseIndex - b.doseIndex ||
+          a.column - b.column ||
+          a.domIndex - b.domIndex
+      )
+      .map(({ el }) => el)
+  );
+}
+
 function DoseOptionsCell({ row }: DoseCellProps) {
-  const { updateDose } = useMedicationGrid();
+  const { openOptions } = useMedicationGrid();
   return (
     <DoseStack row={row}>
-      {(dose, index) => {
-        const switchId = `${dose.id}-prn`;
-        const routeId = `${dose.id}-route`;
-        return (
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="mx-auto"
-                aria-label={`More options for ${doseLabel(row, index)}`}
+      {(dose, index) => (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="mx-auto"
+              data-options-dose-id={dose.id}
+              aria-label={`More options for ${doseLabel(row, index)}`}
+              aria-haspopup="dialog"
+              // Focusing on press re-activates the row and shifts layout before the click lands.
+              onPointerDown={(event) => {
+                if (event.button === 0) event.preventDefault();
+              }}
+              onClick={(event) =>
+                openOptions(row.original.id, dose.id, event.currentTarget)
+              }
+            >
+              <ArrowRight aria-hidden="true" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>More options</TooltipContent>
+        </Tooltip>
+      )}
+    </DoseStack>
+  );
+}
+
+function MedicationOptionsSheet({
+  medications,
+  target,
+  onTargetChange,
+  defaultRequester,
+  onUpdate,
+  returnFocusRef,
+}: {
+  medications: MedicationRequest[];
+  target: MedicationOptionsTarget | null;
+  onTargetChange: (target: MedicationOptionsTarget | null) => void;
+  defaultRequester: string;
+  onUpdate: (medicationId: string, patch: Partial<MedicationRequest>) => void;
+  returnFocusRef: React.RefObject<HTMLButtonElement | null>;
+}) {
+  const { updateDose, setActiveId } = useMedicationGrid();
+  const routeRef = React.useRef<HTMLButtonElement>(null);
+  const restoreFocusRef = React.useRef(true);
+  const idPrefix = React.useId();
+  const index = medications.findIndex(
+    (medication) => medication.id === target?.medicationId
+  );
+  const medication = medications[index];
+  const dose = medication?.doses.find((entry) => entry.id === target?.doseId);
+  const selectedDoseId = dose?.id;
+
+  React.useLayoutEffect(() => {
+    if (!selectedDoseId) return;
+    scrollMedicationDoseIntoView(selectedDoseId);
+    // Closing returns focus to the dose currently shown, not the one first opened.
+    const trigger = document.querySelector<HTMLButtonElement>(
+      `[data-options-dose-id="${selectedDoseId}"]`
+    );
+    if (trigger) returnFocusRef.current = trigger;
+  }, [selectedDoseId, returnFocusRef]);
+
+  const navigate = (offset: number) => {
+    const next = medications[index + offset];
+    if (!next) return;
+    onTargetChange({ medicationId: next.id, doseId: next.doses[0].id });
+    setActiveId(next.id);
+  };
+
+  return (
+    <Sheet
+      modal={false}
+      open={!!medication && !!dose}
+      onOpenChange={(open, eventDetails) => {
+        if (!open) {
+          restoreFocusRef.current =
+            eventDetails.reason !== "outside-press" &&
+            eventDetails.reason !== "focus-out";
+          onTargetChange(null);
+        }
+      }}
+    >
+      <SheetContent
+        side="right"
+        size="md"
+        overlay={false}
+        dismissible
+        className="motion-reduce:animate-none"
+        initialFocus={routeRef}
+        finalFocus={() =>
+          restoreFocusRef.current ? returnFocusRef.current : false
+        }
+      >
+        <SheetHeader>
+          <div className="flex flex-wrap items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-lg"
+                  aria-label="Previous medicine"
+                  disabled={index <= 0}
+                  onClick={() => navigate(-1)}
+                >
+                  <ChevronUp aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Previous medicine</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-lg"
+                  aria-label="Next medicine"
+                  disabled={index >= medications.length - 1}
+                  onClick={() => navigate(1)}
+                >
+                  <ChevronDown aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Next medicine</TooltipContent>
+            </Tooltip>
+            <span
+              className="text-muted-foreground text-sm whitespace-nowrap tabular-nums"
+              role="status"
+            >
+              Medicine {index + 1} of {medications.length}
+            </span>
+          </div>
+        </SheetHeader>
+        {medication && dose && (
+          <>
+            <SheetBody>
+              <div
+                className="mb-5 flex min-w-0 flex-col gap-1"
+                aria-live="polite"
+                aria-atomic="true"
               >
-                <ArrowRight />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-72">
-              <PopoverHeader>
-                <PopoverTitle>Dose options</PopoverTitle>
-                <PopoverDescription>{doseLabel(row, index)}</PopoverDescription>
-              </PopoverHeader>
-              <FieldGroup>
+                <SheetDescription>More options for</SheetDescription>
+                <SheetTitle className="leading-snug wrap-break-word">
+                  {medication.medicine}
+                </SheetTitle>
+              </div>
+              <FieldGroup className="gap-5 px-1 pb-1">
+                {medication.doses.length > 1 && (
+                  <Field>
+                    <FieldLabel htmlFor={`${idPrefix}-dose`}>Dose</FieldLabel>
+                    <Select
+                      items={medication.doses.map((entry, doseIndex) => ({
+                        value: entry.id,
+                        label: `Dose ${doseIndex + 1}${entry.dosage ? ` - ${entry.dosage}` : ""}`,
+                      }))}
+                      value={dose.id}
+                      onValueChange={(doseId) => {
+                        if (doseId)
+                          onTargetChange({
+                            medicationId: medication.id,
+                            doseId,
+                          });
+                      }}
+                    >
+                      <SelectTrigger id={`${idPrefix}-dose`} className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          {medication.doses.map((entry, doseIndex) => (
+                            <SelectItem key={entry.id} value={entry.id}>
+                              Dose {doseIndex + 1}
+                              {entry.dosage ? ` - ${entry.dosage}` : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                )}
+                {(
+                  [
+                    { field: "route", label: "Route", options: ROUTES },
+                    { field: "site", label: "Site", options: MEDICATION_SITES },
+                    {
+                      field: "method",
+                      label: "Method",
+                      options: ADMINISTRATION_METHODS,
+                    },
+                  ] as const
+                ).map(({ field, label, options }) => (
+                  <Field key={field}>
+                    <FieldLabel htmlFor={`${idPrefix}-${field}`}>
+                      {label}
+                    </FieldLabel>
+                    <Select
+                      value={dose[field]}
+                      onValueChange={(value) => {
+                        if (field === "route" && !value) return;
+                        updateDose(medication.id, dose.id, { [field]: value });
+                      }}
+                    >
+                      <SelectTrigger
+                        ref={field === "route" ? routeRef : undefined}
+                        id={`${idPrefix}-${field}`}
+                        className="w-full min-w-0"
+                      >
+                        <SelectValue
+                          placeholder={`Select ${label.toLowerCase()}`}
+                        />
+                      </SelectTrigger>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          {field !== "route" && (
+                            <SelectItem value={null}>Not specified</SelectItem>
+                          )}
+                          {options.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                ))}
                 <Field>
-                  <FieldLabel htmlFor={routeId}>Route</FieldLabel>
+                  <FieldLabel htmlFor={`${idPrefix}-intent`}>Intent</FieldLabel>
                   <Select
-                    value={dose.route}
-                    onValueChange={(value) =>
-                      value &&
-                      updateDose(row.original.id, dose.id, { route: value })
-                    }
+                    value={medication.intent}
+                    onValueChange={(intent) => {
+                      if (intent) onUpdate(medication.id, { intent });
+                    }}
                   >
-                    <SelectTrigger id={routeId} className="w-full">
+                    <SelectTrigger id={`${idPrefix}-intent`} className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent alignItemWithTrigger={false}>
-                      {ROUTES.map((route) => (
-                        <SelectItem key={route} value={route}>
-                          {route}
-                        </SelectItem>
-                      ))}
+                      <SelectGroup>
+                        {MEDICATION_INTENTS.map((intent) => (
+                          <SelectItem key={intent} value={intent}>
+                            {intent}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field orientation="horizontal">
-                  <FieldLabel htmlFor={switchId}>As needed (PRN)</FieldLabel>
-                  <Switch
-                    id={switchId}
-                    checked={dose.asNeeded}
-                    onCheckedChange={(checked) =>
-                      updateDose(row.original.id, dose.id, {
-                        asNeeded: checked,
+                <Field>
+                  <FieldLabel htmlFor={`${idPrefix}-authored-on`}>
+                    Authored on
+                  </FieldLabel>
+                  <Input
+                    id={`${idPrefix}-authored-on`}
+                    type="datetime-local"
+                    className="min-w-0"
+                    value={medication.authoredOn}
+                    onChange={(event) =>
+                      onUpdate(medication.id, {
+                        authoredOn: event.target.value,
                       })
                     }
                   />
                 </Field>
+                <Field>
+                  <FieldLabel htmlFor={`${idPrefix}-requester`}>
+                    Requester
+                  </FieldLabel>
+                  <Select
+                    value={medication.requester}
+                    onValueChange={(requester) =>
+                      onUpdate(medication.id, { requester })
+                    }
+                  >
+                    <SelectTrigger
+                      id={`${idPrefix}-requester`}
+                      className="w-full min-w-0"
+                    >
+                      <SelectValue className="min-w-0 truncate">
+                        {
+                          REQUESTERS.find(
+                            (person) =>
+                              person.value ===
+                              (medication.requester ?? defaultRequester)
+                          )?.name
+                        }
+                        {!medication.requester && " (all entries)"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent alignItemWithTrigger={false}>
+                      <SelectGroup>
+                        <SelectItem value={null}>
+                          Use requester for all entries
+                        </SelectItem>
+                        {REQUESTERS.map((person) => (
+                          <SelectItem key={person.value} value={person.value}>
+                            <Avatar size="sm">
+                              <AvatarFallback>{person.initials}</AvatarFallback>
+                            </Avatar>
+                            {person.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor={`${idPrefix}-note`}>Note</FieldLabel>
+                  <Textarea
+                    id={`${idPrefix}-note`}
+                    rows={2}
+                    placeholder="Enter additional note"
+                    value={medication.note}
+                    onChange={(event) =>
+                      onUpdate(medication.id, { note: event.target.value })
+                    }
+                  />
+                </Field>
+                <Field orientation="horizontal">
+                  <FieldLabel htmlFor={`${idPrefix}-prn`}>
+                    As needed (PRN)
+                  </FieldLabel>
+                  <Switch
+                    id={`${idPrefix}-prn`}
+                    className="me-3"
+                    checked={dose.asNeeded}
+                    onCheckedChange={(asNeeded) =>
+                      updateDose(medication.id, dose.id, { asNeeded })
+                    }
+                  />
+                </Field>
               </FieldGroup>
-            </PopoverContent>
-          </Popover>
-        );
-      }}
-    </DoseStack>
+            </SheetBody>
+            <SheetFooter>
+              <SheetClose render={<Button variant="default">Done</Button>} />
+            </SheetFooter>
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -846,7 +1737,7 @@ function NoteRow({ medication }: { medication: MedicationRequest }) {
 
   if (medication.note && !isActive) {
     return (
-      <div className="px-3 py-1.5">
+      <div className="px-2 py-1.5">
         <button
           type="button"
           className="focus-visible:ring-ring/50 flex w-full cursor-text items-center gap-2 rounded-sm text-left text-sm whitespace-normal outline-none focus-visible:ring-3"
@@ -869,7 +1760,7 @@ function NoteRow({ medication }: { medication: MedicationRequest }) {
   }
 
   return (
-    <div className="px-3 py-2">
+    <div className="px-2 py-2">
       <Textarea
         rows={1}
         className="bg-background min-h-10 resize-none"
@@ -907,22 +1798,14 @@ const columns: ColumnDef<MedicationRequest>[] = [
   },
   {
     id: "dosage",
-    header: "Dosage",
+    header: "Dose",
     cell: ({ row }) => <DosageCell row={row} />,
     meta: { className: "w-[20%] @max-2xl:basis-full" },
   },
   {
     id: "schedule",
     header: "Schedule",
-    cell: ({ row }) => (
-      <OptionSelectCell
-        row={row}
-        field="schedule"
-        label="Schedule"
-        placeholder="e.g. 1 - 0 - 1"
-        options={SCHEDULES}
-      />
-    ),
+    cell: ({ row }) => <ScheduleCell row={row} />,
     meta: {
       className: "w-[14%] whitespace-nowrap @max-2xl:w-fit @max-2xl:basis-auto",
     },
@@ -930,17 +1813,9 @@ const columns: ColumnDef<MedicationRequest>[] = [
   {
     id: "duration",
     header: "Duration",
-    cell: ({ row }) => (
-      <OptionSelectCell
-        row={row}
-        field="duration"
-        label="Duration"
-        placeholder="e.g. 5 Days"
-        options={DURATIONS}
-      />
-    ),
+    cell: ({ row }) => <DurationCell row={row} />,
     meta: {
-      className: "w-[12%] whitespace-nowrap @max-2xl:w-fit @max-2xl:basis-auto",
+      className: "w-[14%] whitespace-nowrap @max-2xl:w-48 @max-2xl:basis-auto",
     },
   },
   {
@@ -953,7 +1828,7 @@ const columns: ColumnDef<MedicationRequest>[] = [
     id: "options",
     header: "Options",
     cell: ({ row }) => <DoseOptionsCell row={row} />,
-    meta: { className: "w-16" },
+    meta: { className: "w-20" },
   },
   {
     id: "actions",
@@ -967,7 +1842,7 @@ const gridClassName = cn(
   "@container [&_table]:table-fixed",
   // Active record: tint and outline the row together with its note.
   "[&_tbody:has([data-row-active])]:bg-primary-50 dark:[&_tbody:has([data-row-active])]:bg-primary-950/40",
-  "[&_tbody:has([data-row-active])]:outline-primary [&_tbody:has([data-row-active])]:outline-2 [&_tbody:has([data-row-active])]:-outline-offset-2",
+  "[&_tbody:has([data-row-active])]:outline-primary [&_tbody:has([data-row-active])]:outline-2 [&_tbody:has([data-row-active])]:-outline-offset-3",
   "[&_tbody:has([data-row-active])_tr:hover]:bg-transparent",
   // Narrow containers stack cells instead of scrolling horizontally.
   "@max-2xl:[&_thead]:hidden @max-2xl:[&_table]:block @max-2xl:[&_tbody]:block",
@@ -1003,16 +1878,17 @@ function MedicationPicker({
       )
   );
 
-  const matching = MEDICATION_PICKER_ITEMS.filter((item) => {
-    const matchesSource = source === "All" || item.source === source;
+  const matching = React.useMemo(() => {
     const query = search.trim().toLowerCase();
-    const matchesSearch =
-      !query ||
-      `${item.title} ${item.detail ?? ""} ${item.medicine}`
-        .toLowerCase()
-        .includes(query);
-    return matchesSource && matchesSearch;
-  });
+    return MEDICATION_PICKER_ITEMS.filter(
+      (item) =>
+        (source === "All" || item.source === source) &&
+        (!query ||
+          `${item.title} ${item.detail ?? ""} ${item.medicine}`
+            .toLowerCase()
+            .includes(query))
+    );
+  }, [search, source]);
 
   const groups = React.useMemo(() => {
     if (source !== "All") {
@@ -1050,11 +1926,6 @@ function MedicationPicker({
     ].filter((group): group is { value: string; items: string[] } => !!group);
   }, [matching, search, source, starred]);
 
-  const itemByMedicine = React.useMemo(
-    () => new Map(MEDICATION_PICKER_ITEMS.map((item) => [item.medicine, item])),
-    []
-  );
-
   const toggleStar = (medicine: string) => {
     setStarred((current) => {
       const next = new Set(current);
@@ -1081,13 +1952,13 @@ function MedicationPicker({
         <ComboboxInput
           aria-label="Search medicine to add"
           placeholder="Add medication"
-          className="bg-background w-full shadow-sm"
+          className="bg-background border-primary has-[[data-slot=input-group-control]:focus-visible]:border-primary has-[[data-slot=input-group-control]:focus-visible]:ring-primary/30 w-full shadow-sm"
           inputClassName="placeholder:text-muted-foreground"
           showTrigger={false}
         >
           <InputGroupAddon
             align="inline-start"
-            className="text-muted-foreground pointer-events-none"
+            className="text-primary pointer-events-none"
           >
             <Plus aria-hidden="true" />
           </InputGroupAddon>
@@ -1153,7 +2024,7 @@ function MedicationPicker({
               </ComboboxLabel>
               <ComboboxCollection>
                 {(medicine) => {
-                  const item = itemByMedicine.get(medicine);
+                  const item = PICKER_ITEM_BY_MEDICINE.get(medicine);
                   if (!item) return null;
                   const isStarred = starred.has(medicine);
 
@@ -1485,7 +2356,17 @@ export function MedicationRequestTemplate() {
     Record<string, number>
   >({});
   const [focusDoseId, setFocusDoseId] = React.useState<string | null>(null);
+  const [favoriteInstructions, setFavoriteInstructions] = React.useState(
+    DEFAULT_FAVORITE_INSTRUCTIONS
+  );
+  const [recentInstructions, setRecentInstructions] = React.useState([
+    "Until symptoms improve",
+    "Then stop",
+  ]);
   const gridRef = React.useRef<HTMLDivElement>(null);
+  const [optionsTarget, setOptionsTarget] =
+    React.useState<MedicationOptionsTarget | null>(null);
+  const optionsTriggerRef = React.useRef<HTMLButtonElement>(null);
 
   const updateMedication = React.useCallback(
     (medId: string, update: (m: MedicationRequest) => MedicationRequest) =>
@@ -1513,6 +2394,11 @@ export function MedicationRequestTemplate() {
 
   const actions = React.useMemo<MedicationGridActions>(
     () => ({
+      openOptions: (medicationId, doseId, trigger) => {
+        optionsTriggerRef.current = trigger;
+        setOptionsTarget({ medicationId, doseId });
+        setActiveId(medicationId);
+      },
       doseRowHeights,
       setDoseRowHeight,
       updateDose: (medId, doseId, patch) =>
@@ -1525,7 +2411,13 @@ export function MedicationRequestTemplate() {
         setFocusDoseId(dose.id);
         updateMedication(medId, (m) => ({
           ...m,
-          doses: [...m.doses, dose],
+          doses: [
+            ...m.doses,
+            {
+              ...dose,
+              dosage: parseDosage(m.doses.at(-1)?.dosage ?? "").unit,
+            },
+          ],
         }));
       },
       removeDose: (medId, doseId) =>
@@ -1551,8 +2443,30 @@ export function MedicationRequestTemplate() {
         updateMedication(medId, (m) => ({ ...m, note })),
       activeId,
       setActiveId,
+      favoriteInstructions,
+      toggleFavoriteInstruction: (instruction) =>
+        setFavoriteInstructions((current) =>
+          current.includes(instruction)
+            ? current.filter((item) => item !== instruction)
+            : [...current, instruction]
+        ),
+      recentInstructions,
+      recordRecentInstructions: (instructions) => {
+        if (!instructions.length) return;
+        setRecentInstructions((current) => [
+          ...instructions,
+          ...current.filter((item) => !instructions.includes(item)),
+        ]);
+      },
     }),
-    [updateMedication, activeId, doseRowHeights, setDoseRowHeight]
+    [
+      updateMedication,
+      activeId,
+      doseRowHeights,
+      setDoseRowHeight,
+      favoriteInstructions,
+      recentInstructions,
+    ]
   );
 
   // Clear the active row when focus or a click lands outside the grid and its popups.
@@ -1604,42 +2518,7 @@ export function MedicationRequestTemplate() {
         const input = document.getElementById(`${focusDoseId}-dosage`);
         if (!input) return;
         input.focus();
-
-        const row = input.closest("tr");
-        const pickerFooter = document.querySelector<HTMLElement>(
-          '[data-slot="medication-picker-sticky"]'
-        );
-        let scrollContainer: HTMLElement | null = row?.parentElement ?? null;
-        while (scrollContainer) {
-          const style = getComputedStyle(scrollContainer);
-          if (
-            /(auto|scroll)/.test(style.overflowY) &&
-            scrollContainer.scrollHeight > scrollContainer.clientHeight
-          ) {
-            break;
-          }
-          scrollContainer = scrollContainer.parentElement;
-        }
-
-        if (row && scrollContainer) {
-          const containerRect = scrollContainer.getBoundingClientRect();
-          const rowRect = row.getBoundingClientRect();
-          const footerTop = pickerFooter?.getBoundingClientRect().top;
-          const visibleBottom = Math.min(
-            containerRect.bottom,
-            footerTop ?? containerRect.bottom
-          );
-          const bottomOverflow = rowRect.bottom + 12 - visibleBottom;
-          const topOverflow = containerRect.top + 12 - rowRect.top;
-
-          if (bottomOverflow > 0) {
-            scrollContainer.scrollTop += bottomOverflow;
-          } else if (topOverflow > 0) {
-            scrollContainer.scrollTop -= topOverflow;
-          }
-        } else {
-          input.scrollIntoView({ block: "nearest" });
-        }
+        scrollMedicationDoseIntoView(focusDoseId);
       });
     });
     return () => {
@@ -1652,206 +2531,244 @@ export function MedicationRequestTemplate() {
 
   return (
     <MedicationGridContext.Provider value={actions}>
-      <Card className="overflow-visible">
-        <CardHeader>
-          <CardTitle>
-            Advice medicine{" "}
-            <span className="text-destructive" aria-hidden="true">
-              *
-            </span>
-          </CardTitle>
-          <CardDescription>
-            {medications.length}{" "}
-            {medications.length === 1 ? "medicine" : "medicines"} in this
-            request
-          </CardDescription>
-          <CardAction className="flex flex-wrap justify-end gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  aria-label="Medication history"
-                >
-                  <History />
-                  <span className="hidden sm:inline">Medication history</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Previously prescribed</DropdownMenuLabel>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                {MEDICATION_HISTORY.map((entry) => (
-                  <DropdownMenuItem
-                    key={entry.medicine}
-                    className="flex-col items-start gap-0.5"
-                    onClick={() =>
-                      addMedicines([
-                        {
-                          medicine: entry.medicine,
-                          dose: {
-                            schedule: entry.schedule,
-                            duration: entry.duration,
+      <TooltipProvider delay={150}>
+        <Card className="overflow-visible">
+          <CardHeader>
+            <CardTitle>
+              Advice medicine{" "}
+              <span className="text-destructive" aria-hidden="true">
+                *
+              </span>
+            </CardTitle>
+            <CardDescription>
+              {medications.length}{" "}
+              {medications.length === 1 ? "medicine" : "medicines"} in this
+              request
+            </CardDescription>
+            <CardAction className="flex flex-wrap justify-end gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label="Medication history"
+                  >
+                    <History />
+                    <span className="hidden sm:inline">Medication history</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-72">
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Previously prescribed</DropdownMenuLabel>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  {MEDICATION_HISTORY.map((entry) => (
+                    <DropdownMenuItem
+                      key={entry.medicine}
+                      className="flex-col items-start gap-0.5"
+                      onClick={() =>
+                        addMedicines([
+                          {
+                            medicine: entry.medicine,
+                            dose: {
+                              schedule: entry.schedule,
+                              duration: entry.duration,
+                            },
                           },
-                        },
-                      ])
-                    }
-                  >
-                    <span>{entry.medicine}</span>
-                    <span className="text-muted-foreground text-xs">
-                      {entry.schedule} · {entry.duration} · {entry.date}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" aria-label="Template">
-                  <ClipboardList />
-                  <span className="hidden sm:inline">Template</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Apply a template</DropdownMenuLabel>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                {MEDICATION_TEMPLATES.map((template) => (
-                  <DropdownMenuItem
-                    key={template.name}
-                    className="flex-col items-start gap-0.5"
-                    onClick={() =>
-                      addMedicines(
-                        template.medicines.map((medicine) => ({ medicine }))
-                      )
-                    }
-                  >
-                    <span>{template.name}</span>
-                    <span className="text-muted-foreground text-xs">
-                      {template.medicines.length} medicines
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label="Table settings"
-                >
-                  <Settings2 />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Table settings</DropdownMenuLabel>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuCheckboxItem
-                  checked={dense}
-                  onCheckedChange={(value) => setDense(!!value)}
-                >
-                  Compact rows
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem
-                  checked={cellBorder}
-                  onCheckedChange={(value) => setCellBorder(!!value)}
-                >
-                  Cell borders
-                </DropdownMenuCheckboxItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </CardAction>
-        </CardHeader>
-
-        <CardContent className="flex flex-col gap-4">
-          {/* Clicks on the spanned Sl./Medicine cells focus that row's first dosage input. */}
-          <div
-            ref={gridRef}
-            onClick={(event) =>
-              (event.target as Element)
-                .closest("td[rowspan]")
-                ?.closest("tbody")
-                ?.querySelector<HTMLInputElement>("input")
-                ?.focus()
-            }
-          >
-            <DataTable
-              columns={columns}
-              data={medications}
-              hideToolbar
-              cellBorder={cellBorder}
-              dense={dense}
-              defaultExpanded={true}
-              className={gridClassName}
-              renderExpandedRow={(row) => (
-                <NoteRow key={row.original.id} medication={row.original} />
-              )}
-            />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_1fr]">
-            <Field>
-              <FieldLabel htmlFor="medication-requester">
-                Requester for all entries
-              </FieldLabel>
-              <Select
-                value={requester}
-                onValueChange={(value) => value && setRequester(value)}
-              >
-                <SelectTrigger id="medication-requester" className="w-full">
-                  <SelectValue>
-                    {activeRequester && (
-                      <>
-                        <Avatar size="sm">
-                          <AvatarFallback>
-                            {activeRequester.initials}
-                          </AvatarFallback>
-                        </Avatar>
-                        {activeRequester.name}
-                      </>
-                    )}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent alignItemWithTrigger={false}>
-                  {REQUESTERS.map((person) => (
-                    <SelectItem key={person.value} value={person.value}>
-                      <Avatar size="sm">
-                        <AvatarFallback>{person.initials}</AvatarFallback>
-                      </Avatar>
-                      {person.name}
-                    </SelectItem>
+                        ])
+                      }
+                    >
+                      <span>{entry.medicine}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {entry.schedule} · {entry.duration} · {entry.date}
+                      </span>
+                    </DropdownMenuItem>
                   ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="medication-request-note">Note</FieldLabel>
-              <Input
-                id="medication-request-note"
-                placeholder="Add a note for the whole request"
-                value={requestNote}
-                onChange={(e) => setRequestNote(e.target.value)}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" aria-label="Template">
+                    <ClipboardList />
+                    <span className="hidden sm:inline">Template</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Apply a template</DropdownMenuLabel>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  {MEDICATION_TEMPLATES.map((template) => (
+                    <DropdownMenuItem
+                      key={template.name}
+                      className="flex-col items-start gap-0.5"
+                      onClick={() =>
+                        addMedicines(
+                          template.medicines.map((medicine) => ({ medicine }))
+                        )
+                      }
+                    >
+                      <span>{template.name}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {template.medicines.length} medicines
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    aria-label="Table settings"
+                  >
+                    <Settings2 />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Table settings</DropdownMenuLabel>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuCheckboxItem
+                    checked={dense}
+                    onCheckedChange={(value) => setDense(!!value)}
+                  >
+                    Compact rows
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={cellBorder}
+                    onCheckedChange={(value) => setCellBorder(!!value)}
+                  >
+                    Cell borders
+                  </DropdownMenuCheckboxItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </CardAction>
+          </CardHeader>
+
+          <CardContent className="flex flex-col gap-4">
+            {/* Clicks on the spanned Sl./Medicine cells focus that row's first dosage input. */}
+            <div
+              ref={gridRef}
+              onKeyDown={(event) => {
+                if (
+                  event.key !== "Tab" ||
+                  event.altKey ||
+                  event.ctrlKey ||
+                  event.metaKey ||
+                  !gridRef.current?.contains(event.target as Node)
+                ) {
+                  return;
+                }
+                const order = gridTabOrder(gridRef.current);
+                const index = order.indexOf(event.target as HTMLElement);
+                if (index === -1) return;
+                const next = order[index + (event.shiftKey ? -1 : 1)];
+                if (next) {
+                  event.preventDefault();
+                  next.focus();
+                  return;
+                }
+                // At either end, hand off from the DOM edge so the browser leaves the grid naturally.
+                const domOrder = focusableIn(gridRef.current);
+                domOrder[event.shiftKey ? 0 : domOrder.length - 1]?.focus();
+              }}
+              onClick={(event) =>
+                (event.target as Element)
+                  .closest("td[rowspan]")
+                  ?.closest("tbody")
+                  ?.querySelector<HTMLInputElement>("input")
+                  ?.focus()
+              }
+            >
+              <DataTable
+                columns={columns}
+                data={medications}
+                hideToolbar
+                cellBorder={cellBorder}
+                dense={dense}
+                defaultExpanded={true}
+                className={gridClassName}
+                renderExpandedRow={(row) => (
+                  <NoteRow key={row.original.id} medication={row.original} />
+                )}
               />
-            </Field>
-          </div>
-          <div
-            data-slot="medication-picker-sticky"
-            className="bg-card/95 sticky bottom-0 z-30 -mx-6 mt-auto border-t px-6 py-3 backdrop-blur"
-          >
-            <MedicationPicker
-              onSelect={(medicine) => addMedicines([{ medicine }])}
-            />
-          </div>
-        </CardContent>
-      </Card>
-      <VaccinationRequestExample />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_1fr]">
+              <Field>
+                <FieldLabel htmlFor="medication-requester">
+                  Requester for all entries
+                </FieldLabel>
+                <Select
+                  value={requester}
+                  onValueChange={(value) => value && setRequester(value)}
+                >
+                  <SelectTrigger id="medication-requester" className="w-full">
+                    <SelectValue>
+                      {activeRequester && (
+                        <>
+                          <Avatar size="sm">
+                            <AvatarFallback>
+                              {activeRequester.initials}
+                            </AvatarFallback>
+                          </Avatar>
+                          {activeRequester.name}
+                        </>
+                      )}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent alignItemWithTrigger={false}>
+                    {REQUESTERS.map((person) => (
+                      <SelectItem key={person.value} value={person.value}>
+                        <Avatar size="sm">
+                          <AvatarFallback>{person.initials}</AvatarFallback>
+                        </Avatar>
+                        {person.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="medication-request-note">Note</FieldLabel>
+                <Input
+                  id="medication-request-note"
+                  placeholder="Add a note for the whole request"
+                  value={requestNote}
+                  onChange={(e) => setRequestNote(e.target.value)}
+                />
+              </Field>
+            </div>
+            <div
+              data-slot="medication-picker-sticky"
+              className="bg-card/95 sticky bottom-0 z-30 -mx-6 mt-auto border-t px-6 py-3 backdrop-blur"
+            >
+              <MedicationPicker
+                onSelect={(medicine) => addMedicines([{ medicine }])}
+              />
+            </div>
+          </CardContent>
+        </Card>
+        <MedicationOptionsSheet
+          medications={medications}
+          target={optionsTarget}
+          onTargetChange={setOptionsTarget}
+          defaultRequester={requester}
+          onUpdate={(medicationId, patch) =>
+            updateMedication(medicationId, (medication) => ({
+              ...medication,
+              ...patch,
+            }))
+          }
+          returnFocusRef={optionsTriggerRef}
+        />
+        <VaccinationRequestExample />
+      </TooltipProvider>
     </MedicationGridContext.Provider>
   );
 }
