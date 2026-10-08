@@ -829,12 +829,16 @@ function DosageInput({
               aria-label={`Change dose unit from ${unit}`}
               showChevron={false}
             >
-              {unit}
+              {unit === "international unit" ? "IU" : unit}
             </ComboboxTrigger>
           )}
         </ComboboxInput>
       </div>
-      <ComboboxContent side="bottom" anchor={fieldRef} className="min-w-0">
+      <ComboboxContent
+        side="bottom"
+        anchor={fieldRef}
+        className="w-max min-w-0"
+      >
         <ComboboxEmpty>No dose units found.</ComboboxEmpty>
         <ComboboxList className="max-h-none">
           {(option: string) => (
@@ -934,7 +938,6 @@ function DurationInput({
     onChange(duration);
     setOpen(false);
     setTyped(false);
-    setPanel("list");
     requestAnimationFrame(() =>
       fieldRef.current?.querySelector("input")?.focus()
     );
@@ -962,8 +965,8 @@ function DurationInput({
   };
 
   const autoOpenPopup = React.useEffectEvent(() => {
-    fieldRef.current?.querySelector("input")?.focus();
     openPopup();
+    fieldRef.current?.querySelector("input")?.focus();
     onAutoOpened?.();
   });
 
@@ -997,7 +1000,6 @@ function DurationInput({
         }
         setOpen(false);
         setTyped(false);
-        setPanel("list");
       }}
       value={value && options.includes(value) ? value : null}
       inputValue={value ?? ""}
@@ -1232,7 +1234,10 @@ function ScheduleCombobox({
           {value ?? "e.g. 1-0-1"}
         </span>
       </ComboboxTrigger>
-      <ComboboxContent className="w-72" finalFocus={() => !pickedRef.current}>
+      <ComboboxContent
+        className="w-72 data-closed:animate-none data-closed:duration-0"
+        finalFocus={() => !pickedRef.current}
+      >
         <ComboboxInput
           showTrigger={false}
           className="h-12! rounded-sm bg-transparent! md:h-10!"
@@ -1242,7 +1247,7 @@ function ScheduleCombobox({
         <ComboboxEmpty>No schedules found.</ComboboxEmpty>
         <ComboboxList showScrollbar>
           {(item: string) => (
-            <ComboboxItem key={item} value={item}>
+            <ComboboxItem key={item} value={item} className="min-h-10">
               {item} ({SCHEDULE_DESCRIPTIONS.get(item)})
             </ComboboxItem>
           )}
@@ -1350,7 +1355,7 @@ function FavoritesMultiCombobox({
           )}
         >
           {value.length === 0
-            ? placeholder
+            ? <span className="min-w-0 truncate">{placeholder}</span>
             : (expanded ? value : value.slice(0, 1)).map((item) => (
                 <Badge
                   key={item}
@@ -1501,7 +1506,7 @@ function InstructionsCell({ row }: DoseCellProps) {
             }
             options={INSTRUCTIONS}
             picks={instructionPicks}
-            placeholder="Select instructions"
+            placeholder="Select instructions…"
             searchLabel="Search instructions"
             searchPlaceholder="Select additional instructions"
             emptyText="No instructions found."
@@ -2189,6 +2194,7 @@ function MedicationPicker({
         )
       )
   );
+  const [favoriteAnnouncement, setFavoriteAnnouncement] = React.useState("");
 
   const focusFirstTypeFilterOption = () => {
     requestAnimationFrame(() => {
@@ -2555,12 +2561,18 @@ function MedicationPicker({
   };
 
   const toggleStar = (medicine: string) => {
+    const item = PICKER_ITEM_BY_MEDICINE.get(medicine);
+    if (!item) return;
+    const willBeStarred = !starred.has(medicine);
     setStarred((current) => {
       const next = new Set(current);
       if (next.has(medicine)) next.delete(medicine);
       else next.add(medicine);
       return next;
     });
+    setFavoriteAnnouncement(
+      `${willBeStarred ? "Added" : "Removed"} ${item.title} ${willBeStarred ? "to" : "from"} favorites.`
+    );
   };
 
   const renderPickerOption = (group: { value: string }, option: string) => {
@@ -2618,6 +2630,7 @@ function MedicationPicker({
       <div key={item.medicine} className="relative flex items-center">
         <ComboboxItem
           value={item.medicine}
+          data-medicine={item.medicine}
           className="min-h-12 flex-1 gap-3 py-1.5 pr-30 pl-3 sm:pr-36"
         >
           <ProductIcon
@@ -2730,7 +2743,7 @@ function MedicationPicker({
       >
         <ComboboxInput
           aria-label="Search medications to add"
-          aria-keyshortcuts={`${primaryModifier}+Shift+M`}
+          aria-keyshortcuts={`${primaryModifier}+Shift+M Shift+Enter`}
           placeholder={
             !open
               ? "Add Medication"
@@ -2745,6 +2758,26 @@ function MedicationPicker({
           inputClassName="placeholder:text-muted-foreground"
           showTrigger={false}
           onKeyDown={(event) => {
+            if (
+              event.key === "Enter" &&
+              event.shiftKey &&
+              !event.altKey &&
+              !event.ctrlKey &&
+              !event.metaKey
+            ) {
+              const activeOptionId = event.currentTarget.getAttribute(
+                "aria-activedescendant"
+              );
+              const medicine = activeOptionId
+                ? document.getElementById(activeOptionId)?.dataset.medicine
+                : undefined;
+              if (medicine) {
+                event.preventDefault();
+                event.stopPropagation();
+                toggleStar(medicine);
+                return;
+              }
+            }
             if (event.key === "Tab" && !event.shiftKey && hasActiveFilters) {
               const clearButton =
                 fieldRef.current?.querySelector<HTMLButtonElement>(
@@ -3037,6 +3070,9 @@ function MedicationPicker({
             No medicines match your search.
           </div>
         )}
+        <div className="sr-only" role="status" aria-live="polite">
+          {favoriteAnnouncement}
+        </div>
       </ComboboxContent>
     </Combobox>
   );
